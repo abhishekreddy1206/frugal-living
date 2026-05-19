@@ -1,9 +1,19 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth import seed_dev_fixtures
 from app.routers import ai, content, food, health, tracking
 
-app = FastAPI(title="Frugal Living API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    seed_dev_fixtures()
+    yield
+
+
+app = FastAPI(title="Frugal Living API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

@@ -5,16 +5,25 @@ This is Tier A. All tables live in the `food` schema.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, date
+from datetime import date, datetime
+
 from sqlalchemy import (
-    String, DateTime, Date, ForeignKey, Integer, Numeric, Text, Index, Boolean, func
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    func,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 from app.models.core import TimestampMixin
-
 
 # ---------- Canonical ingredient catalog ----------
 
