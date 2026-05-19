@@ -9,7 +9,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.schemas.food import ExtractedPantry
+from app.schemas.food import (
+    ExtractedPantry,
+    PantrySnapshotItem,
+    StretchConstraints,
+    StretchSuggestions,
+)
 from app.services import llm
 
 # ---------- _extract_json ----------
@@ -109,6 +114,129 @@ def test_extract_pantry_from_image_raises_on_empty_response(mock_client):
     mock_client.messages.create.return_value = SimpleNamespace(content=[])
     with pytest.raises(ValueError, match="no text content"):
         llm.extract_pantry_from_image("BASE64DATA" * 10)
+
+
+# ---------- stretch_recipes_for_pantry (mocked) ----------
+
+
+def _stretch_response(recipes: list[dict]) -> SimpleNamespace:
+    return SimpleNamespace(
+        content=[SimpleNamespace(type="text", text=json.dumps({"recipes": recipes}))]
+    )
+
+
+def test_stretch_happy_path(mock_client):
+    mock_client.messages.create.return_value = _stretch_response(
+        [
+            {
+                "name": "Tomato Garlic Pasta",
+                "description": "Simple weeknight pasta.",
+                "servings": 4,
+                "prep_time_min": 10,
+                "cook_time_min": 15,
+                "cuisine": "Italian",
+                "difficulty": "easy",
+                "tags": ["quick", "vegetarian"],
+                "estimated_cost_usd": 2.50,
+                "estimated_cost_per_serving_usd": 0.62,
+                "ingredients": [
+                    {
+                        "raw_name": "spaghetti",
+                        "quantity": 1,
+                        "unit": "lb",
+                        "is_optional": False,
+                        "substitutions": ["any long pasta"],
+                    },
+                    {
+                        "raw_name": "garlic",
+                        "quantity": 4,
+                        "unit": "clove",
+                        "is_optional": False,
+                        "substitutions": [],
+                    },
+                ],
+                "steps": [
+                    {"content": "Boil pasta.", "duration_seconds": 600},
+                    {"content": "Sauté garlic.", "duration_seconds": 120},
+                ],
+                "pantry_items_used": ["spaghetti", "garlic"],
+            }
+        ]
+    )
+
+    pantry = [
+        PantrySnapshotItem(
+            raw_name="spaghetti", quantity=1, unit="lb",
+            expires_in_days=720, ingredient_id=None,
+        ),
+        PantrySnapshotItem(
+            raw_name="garlic", quantity=1, unit="head",
+            expires_in_days=21, ingredient_id=None,
+        ),
+    ]
+    result = llm.stretch_recipes_for_pantry(pantry, StretchConstraints())
+
+    assert isinstance(result, StretchSuggestions)
+    assert len(result.recipes) == 1
+    r = result.recipes[0]
+    assert r.name == "Tomato Garlic Pasta"
+    assert r.difficulty == "easy"
+    assert len(r.ingredients) == 2
+    assert r.ingredients[0].substitutions == ["any long pasta"]
+    assert "spaghetti" in r.pantry_items_used
+
+    kwargs = mock_client.messages.create.call_args.kwargs
+    assert kwargs["model"] == llm.MODEL_FAST
+    # Pantry summary appears in the user message
+    user_msg = kwargs["messages"][0]["content"]
+    assert "spaghetti" in user_msg
+    assert "garlic" in user_msg
+
+
+def test_stretch_passes_constraints_to_prompt(mock_client):
+    mock_client.messages.create.return_value = _stretch_response([])
+    llm.stretch_recipes_for_pantry(
+        [],
+        StretchConstraints(
+            max_prep_min=15,
+            max_cook_min=30,
+            count=3,
+            cuisines=["Thai", "Mexican"],
+            meal_type="dinner",
+        ),
+    )
+    user_msg = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+    assert "Return 3 recipes" in user_msg
+    assert "<= 15" in user_msg
+    assert "<= 30" in user_msg
+    assert "Thai" in user_msg
+    assert "dinner" in user_msg
+
+
+def test_stretch_empty_pantry_still_works(mock_client):
+    mock_client.messages.create.return_value = _stretch_response([])
+    result = llm.stretch_recipes_for_pantry([], StretchConstraints())
+    assert result.recipes == []
+    user_msg = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+    assert "pantry is empty" in user_msg
+
+
+def test_stretch_rejects_malformed_difficulty(mock_client):
+    """Pydantic validation should reject an out-of-domain difficulty value."""
+    import pydantic
+    mock_client.messages.create.return_value = _stretch_response(
+        [
+            {
+                "name": "X",
+                "servings": 2,
+                "difficulty": "trivial",  # invalid
+                "ingredients": [],
+                "steps": [],
+            }
+        ]
+    )
+    with pytest.raises(pydantic.ValidationError):
+        llm.stretch_recipes_for_pantry([], StretchConstraints())
 
 
 # ---------- Live test (opt-in) ----------

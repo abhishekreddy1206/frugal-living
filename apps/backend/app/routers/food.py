@@ -1,25 +1,32 @@
 """Tier A — food routes."""
 from __future__ import annotations
 
+import uuid
 from datetime import date, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import asc, nulls_last
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.auth import CurrentHousehold, CurrentUser
 from app.db import get_db
-from app.models.food import Ingredient, PantryItem
+from app.models.food import Ingredient, PantryItem, Recipe
 from app.schemas.food import (
+    CookedResponse,
     ExtractedItem,
     PantryCaptureRequest,
     PantryCaptureResponse,
     PantryItemRead,
+    RecipeRead,
+    StretchConstraints,
+    StretchResponse,
 )
 from app.services.events import emit_event
 from app.services.ingredients import resolve_ingredient
-from app.services.llm import extract_pantry_from_image
+from app.services.llm import extract_pantry_from_image, stretch_recipes_for_pantry
+from app.services.pantry import consume_for_recipe, snapshot_pantry
+from app.services.recipes import create_recipe_from_ai, load_recipe_with_children
 
 router = APIRouter()
 
@@ -130,9 +137,98 @@ def capture_barcode(db: Annotated[Session, Depends(get_db)]):
 # ---------- Recipes (Sprint 2) ----------
 
 
-@router.get("/recipes/stretch")
-def stretch_recipes(db: Annotated[Session, Depends(get_db)]):
-    return {"suggestions": [], "todo": "Wire to services.llm.stretch_recipes_for_pantry"}
+@router.get("/recipes/stretch", response_model=StretchResponse)
+def stretch_recipes(
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    max_prep_min: Annotated[int | None, Query(ge=0, le=240)] = None,
+    max_cook_min: Annotated[int | None, Query(ge=0, le=480)] = None,
+    prioritize_expiring: bool = True,
+    count: Annotated[int, Query(ge=1, le=10)] = 5,
+    cuisines: Annotated[list[str] | None, Query()] = None,
+    meal_type: Annotated[
+        str | None, Query(pattern=r"^(breakfast|lunch|dinner|snack|any)$")
+    ] = None,
+) -> StretchResponse:
+    """Suggest recipes that maximize what's already in the household's pantry."""
+    pantry = snapshot_pantry(db, household)
+    constraints = StretchConstraints(
+        max_prep_min=max_prep_min,
+        max_cook_min=max_cook_min,
+        prioritize_expiring=prioritize_expiring,
+        count=count,
+        cuisines=cuisines,
+        meal_type=meal_type,
+    )
+    suggestions = stretch_recipes_for_pantry(pantry, constraints)
+
+    persisted: list[Recipe] = []
+    for ai_recipe in suggestions.recipes:
+        recipe = create_recipe_from_ai(
+            db, household=household, user=user, ai_recipe=ai_recipe
+        )
+        persisted.append(recipe)
+    db.commit()
+
+    # Reload with children eagerly for serialization
+    out = []
+    for r in persisted:
+        loaded = load_recipe_with_children(db, r.id)
+        if loaded is not None:
+            out.append(RecipeRead.model_validate(loaded))
+
+    return StretchResponse(recipes=out, pantry_size=len(pantry))
+
+
+@router.post("/recipes/{recipe_id}/cooked", response_model=CookedResponse)
+def mark_recipe_cooked(
+    recipe_id: uuid.UUID,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    servings_cooked: Annotated[int | None, Query(ge=1, le=24)] = None,
+) -> CookedResponse:
+    """Mark a recipe as cooked: decrement pantry + emit food.meal.cooked."""
+    recipe = (
+        db.query(Recipe)
+        .options(selectinload(Recipe.ingredients))
+        .filter(Recipe.id == recipe_id, Recipe.deleted_at.is_(None))
+        .one_or_none()
+    )
+    if recipe is None:
+        raise HTTPException(404, "recipe not found")
+
+    cooked_servings = servings_cooked if servings_cooked is not None else recipe.servings
+    result = consume_for_recipe(
+        db, household=household, recipe=recipe, servings_cooked=cooked_servings
+    )
+
+    emit_event(
+        db,
+        event_type="food.meal.cooked",
+        household_id=household.id,
+        user_id=user.id,
+        entity_type="recipe",
+        entity_id=recipe.id,
+        payload={
+            "recipe_id": str(recipe.id),
+            "recipe_name": recipe.name,
+            "servings": cooked_servings,
+            "cooked_from_pantry_pct": result.cooked_from_pantry_pct,
+            "estimated_value_usd": result.estimated_value_usd,
+        },
+    )
+    db.commit()
+
+    return CookedResponse(
+        recipe_id=recipe.id,
+        recipe_name=recipe.name,
+        servings=cooked_servings,
+        cooked_from_pantry_pct=result.cooked_from_pantry_pct,
+        decremented_item_ids=result.decremented_item_ids,
+        estimated_value_usd=result.estimated_value_usd,
+    )
 
 
 # ---------- Meal planning (Sprint 3) ----------

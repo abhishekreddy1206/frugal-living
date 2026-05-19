@@ -18,7 +18,12 @@ from functools import lru_cache
 from anthropic import Anthropic
 
 from app.config import settings
-from app.schemas.food import ExtractedPantry
+from app.schemas.food import (
+    ExtractedPantry,
+    PantrySnapshotItem,
+    StretchConstraints,
+    StretchSuggestions,
+)
 
 MODEL_FAST = "claude-sonnet-4-6"
 MODEL_SMART = "claude-opus-4-7"
@@ -133,9 +138,115 @@ def extract_receipt(image_base64: str, media_type: str = "image/jpeg") -> dict:
     raise NotImplementedError("Implement alongside pantry capture")
 
 
-def stretch_recipes_for_pantry(pantry_items: list[dict], constraints: dict) -> list[dict]:
-    """Generate recipes optimized for what's on hand + budget + preferences. Sprint 2."""
-    raise NotImplementedError("Implement in Sprint 2")
+# v0.1 — initial recipe-stretcher prompt
+RECIPE_STRETCH_SYSTEM = """You are a frugal home cook. The user shares their current pantry; \
+you propose recipes that maximize use of what's already on hand and minimize what must be bought.
+
+Rules:
+- Prioritize ingredients that are expiring soon (lower expires_in_days = more urgency).
+- Aim for cuisine variety across the suggested recipes.
+- Prefer simple, low-equipment dishes a household cook can make on a weeknight.
+- Each recipe must list every ingredient — both pantry items and anything that must be purchased.
+- If a fresh-shopping ingredient is needed, suggest at least one substitution that comes from \
+the pantry when plausible.
+- pantry_items_used MUST list the exact raw_name strings from the pantry snapshot the recipe uses.
+- difficulty must be "easy", "medium", or "hard".
+- estimated_cost_per_serving_usd is your best US-grocery estimate for the cost of *new* ingredients \
+that must be purchased, divided by servings.
+- Skip macros/calorie info — we don't compete with MyFitnessPal.
+- Do NOT advise low-acid water-bath canning or any unsafe preservation.
+
+Respond ONLY with valid JSON conforming to this schema; no preamble, no code fences:
+{
+  "recipes": [
+    {
+      "name": "string",
+      "description": "string | null",
+      "servings": number,
+      "prep_time_min": number | null,
+      "cook_time_min": number | null,
+      "cuisine": "string | null",
+      "difficulty": "easy | medium | hard",
+      "tags": ["string", ...],
+      "estimated_cost_usd": number | null,
+      "estimated_cost_per_serving_usd": number | null,
+      "ingredients": [
+        {
+          "raw_name": "string",
+          "quantity": number | null,
+          "unit": "string | null",
+          "is_optional": boolean,
+          "substitutions": ["string", ...]
+        }
+      ],
+      "steps": [
+        { "content": "string", "duration_seconds": number | null }
+      ],
+      "pantry_items_used": ["pantry_raw_name", ...]
+    }
+  ]
+}"""
+
+
+def _format_pantry_for_prompt(pantry: list[PantrySnapshotItem]) -> str:
+    """Compact text rendering of the pantry to send to Claude."""
+    if not pantry:
+        return "(pantry is empty)"
+    lines = []
+    for p in pantry:
+        qty = f"{p.quantity} {p.unit}" if p.quantity is not None else "(unspecified)"
+        exp = ""
+        if p.expires_in_days is not None:
+            if p.expires_in_days < 0:
+                exp = " · EXPIRED"
+            elif p.expires_in_days <= 3:
+                exp = f" · expires in {p.expires_in_days}d"
+            else:
+                exp = f" · {p.expires_in_days}d shelf"
+        lines.append(f"- {p.raw_name} ({qty}){exp}")
+    return "\n".join(lines)
+
+
+def _format_constraints(constraints: StretchConstraints) -> str:
+    bits = [f"Return {constraints.count} recipes."]
+    if constraints.max_prep_min is not None:
+        bits.append(f"prep_time_min must be <= {constraints.max_prep_min}.")
+    if constraints.max_cook_min is not None:
+        bits.append(f"cook_time_min must be <= {constraints.max_cook_min}.")
+    if constraints.prioritize_expiring:
+        bits.append("Weight pantry items expiring within 5 days heavily.")
+    if constraints.cuisines:
+        bits.append(f"Prefer these cuisines if reasonable: {', '.join(constraints.cuisines)}.")
+    if constraints.meal_type and constraints.meal_type != "any":
+        bits.append(f"All recipes should be suitable for {constraints.meal_type}.")
+    return " ".join(bits)
+
+
+def stretch_recipes_for_pantry(
+    pantry: list[PantrySnapshotItem],
+    constraints: StretchConstraints,
+) -> StretchSuggestions:
+    """Given a pantry snapshot, ask Claude for N recipes that maximize pantry usage."""
+    user_message = (
+        f"Pantry snapshot:\n{_format_pantry_for_prompt(pantry)}\n\n"
+        f"{_format_constraints(constraints)}"
+    )
+
+    response = get_client().messages.create(
+        model=MODEL_FAST,
+        max_tokens=4096,
+        system=RECIPE_STRETCH_SYSTEM,
+        messages=[{"role": "user", "content": user_message}],
+    )
+
+    text_parts = [
+        block.text for block in response.content if getattr(block, "type", None) == "text"
+    ]
+    if not text_parts:
+        raise ValueError("LLM returned no text content")
+
+    raw = _extract_json("".join(text_parts))
+    return StretchSuggestions.model_validate(raw)
 
 
 def generate_weekly_plan(household: dict, pantry: list[dict], constraints: dict) -> dict:

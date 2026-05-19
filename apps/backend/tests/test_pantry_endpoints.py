@@ -11,7 +11,6 @@ from app.auth import DEV_HOUSEHOLD_ID
 from app.db import SessionLocal
 from app.main import app
 from app.models.core import Event
-from app.models.food import PantryItem
 from app.services import llm
 
 
@@ -33,19 +32,6 @@ def _vision_response(items: list[dict]) -> SimpleNamespace:
     return SimpleNamespace(
         content=[SimpleNamespace(type="text", text=json.dumps({"items": items}))]
     )
-
-
-@pytest.fixture(autouse=True)
-def _clean_pantry():
-    """Wipe pantry rows and pantry events for the dev household before each test."""
-    with SessionLocal() as db:
-        db.query(PantryItem).filter(PantryItem.household_id == DEV_HOUSEHOLD_ID).delete()
-        db.query(Event).filter(
-            Event.household_id == DEV_HOUSEHOLD_ID,
-            Event.event_type.like("food.pantry_item.%"),
-        ).delete()
-        db.commit()
-    yield
 
 
 def test_capture_creates_pantry_items_and_emits_events(client, mock_vision):

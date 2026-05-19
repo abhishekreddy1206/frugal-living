@@ -13,14 +13,43 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.orm import Session
 
-from app.auth import seed_dev_fixtures
+from app.auth import DEV_HOUSEHOLD_ID, seed_dev_fixtures
 from app.db import SessionLocal, engine
+from app.models.core import Event
+from app.models.food import (
+    FoodWasteEvent,
+    MealPlan,
+    PantryItem,
+    PreservationJob,
+    Recipe,
+    ShoppingList,
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _seed_session_fixtures():
     """Ensure dev household + ingredient catalog exist for all tests in this run."""
     seed_dev_fixtures()
+
+
+@pytest.fixture(autouse=True)
+def _clean_household_data():
+    """Wipe per-household state before each test so endpoint tests (which commit)
+    don't bleed into subsequent tests. The dev household + ingredient catalog
+    are preserved."""
+    with SessionLocal() as db_:
+        # Order matters for FKs: child tables before parents.
+        db_.query(FoodWasteEvent).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
+        db_.query(PreservationJob).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
+        db_.query(ShoppingList).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
+        db_.query(MealPlan).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
+        db_.query(PantryItem).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
+        # Recipes are not scoped by household, but we wipe ai-generated ones
+        # because tests create them freely. User-created recipes (if any) stay.
+        db_.query(Recipe).filter_by(is_ai_generated=True).delete()
+        db_.query(Event).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
+        db_.commit()
+    yield
 
 
 @pytest.fixture

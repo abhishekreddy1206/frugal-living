@@ -1,4 +1,9 @@
-import type { PantryCaptureResponse, PantryItem } from "./types";
+import type {
+  CookedResponse,
+  PantryCaptureResponse,
+  PantryItem,
+  StretchResponse,
+} from "./types";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -22,6 +27,38 @@ export function capturePantry(
   return api<PantryCaptureResponse>("/api/v1/food/pantry/capture", {
     method: "POST",
     body: JSON.stringify({ image_base64: imageBase64, media_type: mediaType }),
+  });
+}
+
+export interface StretchOptions {
+  count?: number;
+  maxPrepMin?: number;
+  maxCookMin?: number;
+  prioritizeExpiring?: boolean;
+  mealType?: "breakfast" | "lunch" | "dinner" | "snack" | "any";
+  cuisines?: string[];
+}
+
+export function stretchRecipes(opts: StretchOptions = {}): Promise<StretchResponse> {
+  const params = new URLSearchParams();
+  if (opts.count != null) params.set("count", String(opts.count));
+  if (opts.maxPrepMin != null) params.set("max_prep_min", String(opts.maxPrepMin));
+  if (opts.maxCookMin != null) params.set("max_cook_min", String(opts.maxCookMin));
+  if (opts.prioritizeExpiring != null)
+    params.set("prioritize_expiring", String(opts.prioritizeExpiring));
+  if (opts.mealType) params.set("meal_type", opts.mealType);
+  for (const c of opts.cuisines ?? []) params.append("cuisines", c);
+  const qs = params.toString();
+  return api<StretchResponse>(`/api/v1/food/recipes/stretch${qs ? `?${qs}` : ""}`);
+}
+
+export function markRecipeCooked(
+  recipeId: string,
+  servingsCooked?: number,
+): Promise<CookedResponse> {
+  const qs = servingsCooked != null ? `?servings_cooked=${servingsCooked}` : "";
+  return api<CookedResponse>(`/api/v1/food/recipes/${recipeId}/cooked${qs}`, {
+    method: "POST",
   });
 }
 
