@@ -1,4 +1,5 @@
 import type {
+  BadgeAward,
   Briefing,
   CookedResponse,
   MealPlan,
@@ -13,6 +14,7 @@ import type {
   PurchasedItemResponse,
   SavingsRollup,
   ShoppingList,
+  Streak,
   StretchResponse,
   WasteEvent,
   WeekPlanResponse,
@@ -162,6 +164,14 @@ export function logWaste(args: WasteLogArgs): Promise<WasteEvent> {
 
 export function getSavingsRollup(periodDays = 30): Promise<SavingsRollup> {
   return api<SavingsRollup>(`/api/v1/food/waste/savings?period_days=${periodDays}`);
+}
+
+export function getStreaks(): Promise<Streak[]> {
+  return api<Streak[]>("/api/v1/tracking/streaks");
+}
+
+export function getBadges(): Promise<BadgeAward[]> {
+  return api<BadgeAward[]>("/api/v1/tracking/badges");
 }
 
 export function getTodaysBriefing(): Promise<Briefing> {

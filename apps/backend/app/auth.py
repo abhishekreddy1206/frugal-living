@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal, get_db
 from app.models.core import Household, HouseholdMember, Subscription, User
 from app.services.ingredients import seed_starter_ingredients
+from app.services.streaks import seed_badge_definitions
 
 # Stable UUIDs so the dev household is the same across restarts and migrations.
 DEV_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -78,6 +79,7 @@ def seed_dev_fixtures() -> None:
         db.commit()
 
         seed_starter_ingredients(db)
+        seed_badge_definitions(db)
 
 
 def get_current_user(db: Annotated[Session, Depends(get_db)]) -> User:

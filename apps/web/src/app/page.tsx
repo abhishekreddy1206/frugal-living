@@ -1,4 +1,5 @@
 import BriefingCard from "@/components/BriefingCard";
+import StreakBar from "@/components/StreakBar";
 
 export default function Home() {
   return (
@@ -8,8 +9,12 @@ export default function Home() {
         <p className="mt-2 text-stone-600">An AI-native suite for living well on less.</p>
       </header>
 
-      <section className="mb-10">
+      <section className="mb-6">
         <BriefingCard />
+      </section>
+
+      <section className="mb-10">
+        <StreakBar />
       </section>
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-4">

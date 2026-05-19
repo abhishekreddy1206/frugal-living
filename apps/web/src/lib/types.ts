@@ -164,6 +164,23 @@ export interface SavingsRollup {
   expiring_soon: PantryItem[];
 }
 
+// ---------- Streaks + badges ----------
+
+export interface Streak {
+  kind: string;
+  current_length: number;
+  longest_length: number;
+  last_event_on: string | null;
+}
+
+export interface BadgeAward {
+  key: string;
+  name: string;
+  description: string | null;
+  awarded_at: string;
+  icon_url: string | null;
+}
+
 // ---------- Briefing ----------
 
 export interface Briefing {
