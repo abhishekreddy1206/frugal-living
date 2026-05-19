@@ -259,3 +259,42 @@ class PlannedMealStatusResponse(BaseModel):
     cooked_from_pantry_pct: float | None = None
     estimated_value_usd: float | None = None
     decremented_item_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+# ---------- Shopping list (Sprint 4) ----------
+
+
+class ShoppingItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    ingredient_id: uuid.UUID | None
+    raw_name: str
+    quantity: float | None
+    unit: str | None
+    store: str | None
+    estimated_price_usd: float | None
+    actual_price_usd: float | None
+    status: str  # pending | purchased | skipped
+
+
+class ShoppingListRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    meal_plan_id: uuid.UUID | None
+    name: str | None
+    status: str  # active | completed | archived
+    target_date: date | None
+    items: list[ShoppingItemRead] = Field(default_factory=list)
+
+
+class PurchasedItemRequest(BaseModel):
+    actual_price_usd: float | None = Field(default=None, ge=0)
+    location_id: uuid.UUID | None = None
+
+
+class PurchasedItemResponse(BaseModel):
+    shopping_item_id: uuid.UUID
+    pantry_item_id: uuid.UUID
+    status: str

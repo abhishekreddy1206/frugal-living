@@ -109,3 +109,34 @@ export interface PlannedMealStatusResponse {
   estimated_value_usd: number | null;
   decremented_item_ids: string[];
 }
+
+// ---------- Shopping ----------
+
+export type ShoppingItemStatus = "pending" | "purchased" | "skipped";
+
+export interface ShoppingItem {
+  id: string;
+  ingredient_id: string | null;
+  raw_name: string;
+  quantity: number | null;
+  unit: string | null;
+  store: string | null;
+  estimated_price_usd: number | null;
+  actual_price_usd: number | null;
+  status: ShoppingItemStatus;
+}
+
+export interface ShoppingList {
+  id: string;
+  meal_plan_id: string | null;
+  name: string | null;
+  status: "active" | "completed" | "archived";
+  target_date: string | null;
+  items: ShoppingItem[];
+}
+
+export interface PurchasedItemResponse {
+  shopping_item_id: string;
+  pantry_item_id: string;
+  status: "purchased" | "already_purchased";
+}

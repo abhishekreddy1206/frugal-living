@@ -5,6 +5,8 @@ import type {
   PantryItem,
   PlannedMealStatus,
   PlannedMealStatusResponse,
+  PurchasedItemResponse,
+  ShoppingList,
   StretchResponse,
   WeekPlanResponse,
 } from "./types";
@@ -103,6 +105,27 @@ export function updatePlannedMealStatus(
     {
       method: "POST",
       body: JSON.stringify({ status, servings_cooked: servingsCooked }),
+    },
+  );
+}
+
+export function generateShoppingList(): Promise<ShoppingList> {
+  return api<ShoppingList>("/api/v1/food/shopping-lists/from-plan", { method: "POST" });
+}
+
+export function getActiveShoppingList(): Promise<ShoppingList | null> {
+  return api<ShoppingList | null>("/api/v1/food/shopping-lists/active");
+}
+
+export function markShoppingItemPurchased(
+  itemId: string,
+  actualPriceUsd?: number,
+): Promise<PurchasedItemResponse> {
+  return api<PurchasedItemResponse>(
+    `/api/v1/food/shopping-items/${itemId}/purchased`,
+    {
+      method: "POST",
+      body: JSON.stringify({ actual_price_usd: actualPriceUsd }),
     },
   );
 }

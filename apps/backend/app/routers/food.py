@@ -11,7 +11,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.auth import CurrentHousehold, CurrentUser
 from app.db import get_db
-from app.models.food import Ingredient, PantryItem, Recipe
+from app.models.food import (
+    Ingredient,
+    PantryItem,
+    Recipe,
+    ShoppingItem,
+    ShoppingList,
+)
 from app.schemas.food import (
     CookedResponse,
     ExtractedItem,
@@ -22,7 +28,11 @@ from app.schemas.food import (
     PlannedMealStatusResponse,
     PlannedMealStatusUpdate,
     PlannedMealWithRecipe,
+    PurchasedItemRequest,
+    PurchasedItemResponse,
     RecipeRead,
+    ShoppingItemRead,
+    ShoppingListRead,
     StretchConstraints,
     StretchResponse,
     WeekPlanConstraints,
@@ -44,6 +54,11 @@ from app.services.meal_plans import (
 )
 from app.services.pantry import consume_for_recipe, snapshot_pantry
 from app.services.recipes import create_recipe_from_ai, load_recipe_with_children
+from app.services.shopping import (
+    generate_from_meal_plan,
+    load_active_list,
+    mark_purchased,
+)
 
 router = APIRouter()
 
@@ -390,12 +405,100 @@ def update_planned_meal_status(
     return response
 
 
-# ---------- Shopping ----------
+# ---------- Shopping (Sprint 4) ----------
 
 
-@router.get("/shopping-list")
-def get_shopping_list(db: Annotated[Session, Depends(get_db)]):
-    return {"items": [], "todo": "Derive from active meal plan minus pantry"}
+def _serialize_shopping_list(sl: ShoppingList, items: list[ShoppingItem]) -> ShoppingListRead:
+    return ShoppingListRead(
+        id=sl.id,
+        meal_plan_id=sl.meal_plan_id,
+        name=sl.name,
+        status=sl.status,
+        target_date=sl.target_date,
+        items=[ShoppingItemRead.model_validate(i) for i in items],
+    )
+
+
+@router.post("/shopping-lists/from-plan", response_model=ShoppingListRead)
+def shopping_list_from_plan(
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> ShoppingListRead:
+    """Aggregate the active meal plan's ingredients into a shopping list,
+    subtracting what's already in the pantry."""
+    plan = load_active_plan(db, household)
+    if plan is None:
+        raise HTTPException(409, "no active meal plan to derive shopping list from")
+    sl = generate_from_meal_plan(db, household=household, user=user, meal_plan=plan)
+    db.commit()
+    items = (
+        db.query(ShoppingItem)
+        .filter(ShoppingItem.shopping_list_id == sl.id)
+        .order_by(ShoppingItem.raw_name)
+        .all()
+    )
+    return _serialize_shopping_list(sl, items)
+
+
+@router.get("/shopping-lists/active", response_model=ShoppingListRead | None)
+def get_active_shopping_list(
+    household: CurrentHousehold,
+    db: Annotated[Session, Depends(get_db)],
+) -> ShoppingListRead | None:
+    sl = load_active_list(db, household)
+    if sl is None:
+        return None
+    items = (
+        db.query(ShoppingItem)
+        .filter(ShoppingItem.shopping_list_id == sl.id)
+        .order_by(ShoppingItem.status, ShoppingItem.raw_name)
+        .all()
+    )
+    return _serialize_shopping_list(sl, items)
+
+
+@router.post(
+    "/shopping-items/{item_id}/purchased",
+    response_model=PurchasedItemResponse,
+)
+def mark_shopping_item_purchased(
+    item_id: uuid.UUID,
+    request: PurchasedItemRequest,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> PurchasedItemResponse:
+    """Mark a shopping item purchased: copy into the pantry, emit event."""
+    item = db.get(ShoppingItem, item_id)
+    if item is None:
+        raise HTTPException(404, "shopping item not found")
+    # Verify household ownership via parent list
+    sl = db.get(ShoppingList, item.shopping_list_id)
+    if sl is None or sl.household_id != household.id:
+        raise HTTPException(404, "shopping item not found")
+    if item.status == "purchased":
+        # Idempotent: don't double-add to pantry
+        return PurchasedItemResponse(
+            shopping_item_id=item.id,
+            pantry_item_id=uuid.UUID(int=0),
+            status="already_purchased",
+        )
+
+    pantry_item = mark_purchased(
+        db,
+        household=household,
+        user=user,
+        item=item,
+        actual_price_usd=request.actual_price_usd,
+        location_id=request.location_id,
+    )
+    db.commit()
+    return PurchasedItemResponse(
+        shopping_item_id=item.id,
+        pantry_item_id=pantry_item.id,
+        status="purchased",
+    )
 
 
 # ---------- Preservation ----------
