@@ -71,3 +71,41 @@ export interface CookedResponse {
   decremented_item_ids: string[];
   estimated_value_usd: number | null;
 }
+
+// ---------- Meal plan ----------
+
+export type PlannedMealStatus = "planned" | "prepped" | "cooked" | "skipped";
+
+export interface PlannedMeal {
+  id: string;
+  recipe_id: string | null;
+  planned_date: string;
+  meal_type: string;
+  servings: number;
+  status: PlannedMealStatus;
+  notes: string | null;
+  recipe: Recipe | null;
+}
+
+export interface MealPlan {
+  id: string;
+  week_start: string;
+  name: string | null;
+  target_budget_usd: number | null;
+  status: "draft" | "active" | "archived";
+  meals: PlannedMeal[];
+}
+
+export interface WeekPlanResponse {
+  plan: MealPlan;
+  pantry_coverage_summary: string | null;
+  total_estimated_cost_usd: number | null;
+}
+
+export interface PlannedMealStatusResponse {
+  planned_meal_id: string;
+  new_status: PlannedMealStatus;
+  cooked_from_pantry_pct: number | null;
+  estimated_value_usd: number | null;
+  decremented_item_ids: string[];
+}

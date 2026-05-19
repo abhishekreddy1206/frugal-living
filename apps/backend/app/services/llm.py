@@ -19,10 +19,12 @@ from anthropic import Anthropic
 
 from app.config import settings
 from app.schemas.food import (
+    AIWeekPlan,
     ExtractedPantry,
     PantrySnapshotItem,
     StretchConstraints,
     StretchSuggestions,
+    WeekPlanConstraints,
 )
 
 MODEL_FAST = "claude-sonnet-4-6"
@@ -249,9 +251,92 @@ def stretch_recipes_for_pantry(
     return StretchSuggestions.model_validate(raw)
 
 
-def generate_weekly_plan(household: dict, pantry: list[dict], constraints: dict) -> dict:
-    """Generate 5-7 meals planned around pantry + budget. Sprint 3."""
-    raise NotImplementedError("Implement in Sprint 3")
+# v0.1 — initial weekly-plan prompt (Opus territory: multi-constraint optimization)
+WEEK_PLAN_SYSTEM = """You are a household meal-plan optimizer. Generate a weekly dinner plan that:
+
+1. MAXIMIZES use of the existing pantry, especially items expiring within 5 days.
+2. STAYS UNDER the target weekly budget if one is given. Treat target_budget_usd as a hard ceiling \
+on total_estimated_cost_usd — items the user already has do NOT count toward this; only new \
+ingredients that must be purchased count.
+3. RESPECTS dietary constraints (e.g. "vegetarian", "gluten-free", "no pork"). Never violate them.
+4. VARIES cuisine across the week — at most one repeat cuisine in 7 days.
+5. KEEPS difficulty appropriate for weeknight cooking — at most one "hard" recipe per week.
+6. SPACES out high-effort meals — easy meals on weekdays, more involved on weekends if useful.
+
+For each day in the requested range, output one full recipe (same shape as the stretcher), plus:
+  - planned_date (YYYY-MM-DD)
+  - meal_type: "dinner"
+  - rationale: ONE sentence explaining why this slot picks this recipe, naming the pantry \
+items it uses.
+
+Also output:
+  - total_estimated_cost_usd: sum of estimated_cost_usd across recipes (new-purchase cost only)
+  - pantry_coverage_summary: one short sentence like "Uses 12 of 18 pantry items this week."
+
+DO NOT include macros or calorie info. DO NOT suggest unsafe preservation methods.
+
+Respond ONLY with valid JSON conforming to this schema; no preamble, no code fences:
+{
+  "meals": [
+    {
+      "planned_date": "YYYY-MM-DD",
+      "meal_type": "dinner",
+      "rationale": "string",
+      "recipe": { /* full recipe object — name, description, servings, prep_time_min, cook_time_min, \
+cuisine, difficulty, tags, estimated_cost_usd, estimated_cost_per_serving_usd, ingredients[], steps[], \
+pantry_items_used[] */ }
+    }
+  ],
+  "total_estimated_cost_usd": number | null,
+  "pantry_coverage_summary": "string | null"
+}"""
+
+
+def _format_week_plan_constraints(pantry: list[PantrySnapshotItem], c: WeekPlanConstraints) -> str:
+    from datetime import timedelta as _td
+
+    dates = [c.week_start + _td(days=i) for i in range(c.dinners_per_week)]
+    bits = [
+        f"Generate dinner plans for: {', '.join(d.isoformat() for d in dates)}.",
+    ]
+    if c.target_budget_usd is not None:
+        bits.append(f"Target weekly budget for new purchases: ${c.target_budget_usd:.2f}.")
+    if c.max_cost_per_serving_usd is not None:
+        bits.append(f"Cap estimated_cost_per_serving_usd at ${c.max_cost_per_serving_usd:.2f}.")
+    if c.dietary_constraints:
+        bits.append(f"Dietary constraints (must respect all): {', '.join(c.dietary_constraints)}.")
+    if c.notes:
+        bits.append(f"User notes: {c.notes}")
+    return "\n".join([
+        "Pantry snapshot:",
+        _format_pantry_for_prompt(pantry),
+        "",
+        *bits,
+    ])
+
+
+def generate_weekly_plan(
+    pantry: list[PantrySnapshotItem],
+    constraints: WeekPlanConstraints,
+) -> AIWeekPlan:
+    """Generate a multi-constraint weekly dinner plan via Opus 4.7."""
+    user_message = _format_week_plan_constraints(pantry, constraints)
+
+    response = get_client().messages.create(
+        model=MODEL_SMART,
+        max_tokens=8192,
+        system=WEEK_PLAN_SYSTEM,
+        messages=[{"role": "user", "content": user_message}],
+    )
+
+    text_parts = [
+        block.text for block in response.content if getattr(block, "type", None) == "text"
+    ]
+    if not text_parts:
+        raise ValueError("LLM returned no text content")
+
+    raw = _extract_json("".join(text_parts))
+    return AIWeekPlan.model_validate(raw)
 
 
 def generate_briefing(household: dict, pantry: list[dict], savings: list[dict]) -> dict:

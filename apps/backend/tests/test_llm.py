@@ -10,10 +10,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.schemas.food import (
+    AIWeekPlan,
     ExtractedPantry,
     PantrySnapshotItem,
     StretchConstraints,
     StretchSuggestions,
+    WeekPlanConstraints,
 )
 from app.services import llm
 
@@ -237,6 +239,91 @@ def test_stretch_rejects_malformed_difficulty(mock_client):
     )
     with pytest.raises(pydantic.ValidationError):
         llm.stretch_recipes_for_pantry([], StretchConstraints())
+
+
+# ---------- generate_weekly_plan (mocked) ----------
+
+
+def _week_plan_response(plan: dict) -> SimpleNamespace:
+    return SimpleNamespace(
+        content=[SimpleNamespace(type="text", text=json.dumps(plan))]
+    )
+
+
+def _ai_recipe_dict(name: str) -> dict:
+    return {
+        "name": name,
+        "description": f"{name} description",
+        "servings": 4,
+        "prep_time_min": 10,
+        "cook_time_min": 20,
+        "cuisine": "Italian",
+        "difficulty": "easy",
+        "tags": ["weeknight"],
+        "estimated_cost_usd": 3.0,
+        "estimated_cost_per_serving_usd": 0.75,
+        "ingredients": [
+            {"raw_name": "pasta", "quantity": 1, "unit": "lb",
+             "is_optional": False, "substitutions": []},
+        ],
+        "steps": [{"content": "Cook.", "duration_seconds": 900}],
+        "pantry_items_used": ["pasta"],
+    }
+
+
+def test_generate_weekly_plan_uses_opus_model(mock_client):
+    from datetime import date as _date
+    plan_payload = {
+        "meals": [
+            {
+                "planned_date": str(_date.today()),
+                "meal_type": "dinner",
+                "recipe": _ai_recipe_dict("Pasta Night"),
+                "rationale": "Uses your pasta from the pantry.",
+            }
+        ],
+        "total_estimated_cost_usd": 5.0,
+        "pantry_coverage_summary": "Uses 1 of 1 pantry items.",
+    }
+    mock_client.messages.create.return_value = _week_plan_response(plan_payload)
+
+    result = llm.generate_weekly_plan(
+        [],
+        WeekPlanConstraints(
+            week_start=_date.today(),
+            target_budget_usd=30.0,
+            dinners_per_week=1,
+            dietary_constraints=["vegetarian"],
+        ),
+    )
+
+    assert isinstance(result, AIWeekPlan)
+    assert len(result.meals) == 1
+    assert result.meals[0].recipe.name == "Pasta Night"
+    assert result.meals[0].rationale.startswith("Uses your pasta")
+
+    kwargs = mock_client.messages.create.call_args.kwargs
+    assert kwargs["model"] == llm.MODEL_SMART  # Opus, not Sonnet
+    user_msg = kwargs["messages"][0]["content"]
+    assert "Target weekly budget" in user_msg
+    assert "vegetarian" in user_msg
+
+
+def test_generate_weekly_plan_includes_each_date(mock_client):
+    from datetime import date as _date
+    from datetime import timedelta as _td
+    monday = _date(2026, 6, 1)
+    mock_client.messages.create.return_value = _week_plan_response({"meals": []})
+
+    llm.generate_weekly_plan(
+        [], WeekPlanConstraints(week_start=monday, dinners_per_week=3)
+    )
+
+    user_msg = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+    for i in range(3):
+        assert (monday + _td(days=i)).isoformat() in user_msg
+    # 4th day shouldn't appear
+    assert (monday + _td(days=3)).isoformat() not in user_msg
 
 
 # ---------- Live test (opt-in) ----------

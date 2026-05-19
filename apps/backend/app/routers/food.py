@@ -15,16 +15,33 @@ from app.models.food import Ingredient, PantryItem, Recipe
 from app.schemas.food import (
     CookedResponse,
     ExtractedItem,
+    MealPlanRead,
     PantryCaptureRequest,
     PantryCaptureResponse,
     PantryItemRead,
+    PlannedMealStatusResponse,
+    PlannedMealStatusUpdate,
+    PlannedMealWithRecipe,
     RecipeRead,
     StretchConstraints,
     StretchResponse,
+    WeekPlanConstraints,
+    WeekPlanResponse,
 )
 from app.services.events import emit_event
 from app.services.ingredients import resolve_ingredient
-from app.services.llm import extract_pantry_from_image, stretch_recipes_for_pantry
+from app.services.llm import (
+    extract_pantry_from_image,
+    generate_weekly_plan,
+    stretch_recipes_for_pantry,
+)
+from app.services.meal_plans import (
+    create_meal_plan_from_ai,
+    get_planned_meal,
+    load_active_plan,
+    load_plan_recipes_map,
+    mark_planned_meal_status,
+)
 from app.services.pantry import consume_for_recipe, snapshot_pantry
 from app.services.recipes import create_recipe_from_ai, load_recipe_with_children
 
@@ -234,9 +251,143 @@ def mark_recipe_cooked(
 # ---------- Meal planning (Sprint 3) ----------
 
 
-@router.post("/meal-plans/generate")
-def generate_meal_plan(db: Annotated[Session, Depends(get_db)]):
-    return {"meal_plan": None, "todo": "Wire to services.llm.generate_weekly_plan"}
+def _serialize_plan(db: Session, plan) -> MealPlanRead:
+    """Build a MealPlanRead with each PlannedMeal eagerly hydrated with its recipe."""
+    recipes_map = load_plan_recipes_map(db, plan)
+    meals = []
+    for m in sorted(plan.meals, key=lambda x: (x.planned_date, x.meal_type)):
+        recipe = recipes_map.get(m.recipe_id) if m.recipe_id else None
+        meals.append(
+            PlannedMealWithRecipe(
+                id=m.id,
+                recipe_id=m.recipe_id,
+                planned_date=m.planned_date,
+                meal_type=m.meal_type,
+                servings=m.servings,
+                status=m.status,
+                notes=m.notes,
+                recipe=RecipeRead.model_validate(recipe) if recipe else None,
+            )
+        )
+    budget = float(plan.target_budget_usd) if plan.target_budget_usd is not None else None
+    return MealPlanRead(
+        id=plan.id,
+        week_start=plan.week_start,
+        name=plan.name,
+        target_budget_usd=budget,
+        status=plan.status,
+        meals=meals,
+    )
+
+
+@router.post("/meal-plans/generate", response_model=WeekPlanResponse)
+def generate_meal_plan(
+    constraints: WeekPlanConstraints,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> WeekPlanResponse:
+    """Generate a multi-constraint weekly meal plan via Opus 4.7."""
+    pantry = snapshot_pantry(db, household)
+    ai_plan = generate_weekly_plan(pantry, constraints)
+    plan = create_meal_plan_from_ai(
+        db,
+        household=household,
+        user=user,
+        ai_plan=ai_plan,
+        constraints=constraints,
+    )
+    db.commit()
+    db.refresh(plan)
+
+    return WeekPlanResponse(
+        plan=_serialize_plan(db, plan),
+        pantry_coverage_summary=ai_plan.pantry_coverage_summary,
+        total_estimated_cost_usd=ai_plan.total_estimated_cost_usd,
+    )
+
+
+@router.get("/meal-plans/active", response_model=MealPlanRead | None)
+def get_active_meal_plan(
+    household: CurrentHousehold,
+    db: Annotated[Session, Depends(get_db)],
+) -> MealPlanRead | None:
+    plan = load_active_plan(db, household)
+    if plan is None:
+        return None
+    return _serialize_plan(db, plan)
+
+
+@router.post(
+    "/planned-meals/{planned_meal_id}/status",
+    response_model=PlannedMealStatusResponse,
+)
+def update_planned_meal_status(
+    planned_meal_id: uuid.UUID,
+    update: PlannedMealStatusUpdate,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> PlannedMealStatusResponse:
+    """Transition a planned meal. cooked → consumes pantry + emits food.meal.cooked.
+    skipped → emits food.meal.skipped. Other statuses just update the field."""
+    pm = get_planned_meal(db, planned_meal_id)
+    if pm is None or pm.meal_plan.household_id != household.id:
+        raise HTTPException(404, "planned meal not found")
+
+    prev_status = pm.status
+    mark_planned_meal_status(pm, update.status)
+
+    response = PlannedMealStatusResponse(
+        planned_meal_id=pm.id,
+        new_status=update.status,
+    )
+
+    if update.status == "cooked" and prev_status != "cooked":
+        recipe = (
+            db.query(Recipe)
+            .options(selectinload(Recipe.ingredients))
+            .filter(Recipe.id == pm.recipe_id, Recipe.deleted_at.is_(None))
+            .one_or_none()
+        )
+        if recipe is None:
+            raise HTTPException(409, "planned meal references missing recipe")
+        servings = update.servings_cooked or pm.servings
+        result = consume_for_recipe(
+            db, household=household, recipe=recipe, servings_cooked=servings
+        )
+        emit_event(
+            db,
+            event_type="food.meal.cooked",
+            household_id=household.id,
+            user_id=user.id,
+            entity_type="planned_meal",
+            entity_id=pm.id,
+            payload={
+                "recipe_id": str(recipe.id),
+                "recipe_name": recipe.name,
+                "servings": servings,
+                "cooked_from_pantry_pct": result.cooked_from_pantry_pct,
+                "estimated_value_usd": result.estimated_value_usd,
+                "planned_meal_id": str(pm.id),
+            },
+        )
+        response.cooked_from_pantry_pct = result.cooked_from_pantry_pct
+        response.estimated_value_usd = result.estimated_value_usd
+        response.decremented_item_ids = result.decremented_item_ids
+    elif update.status == "skipped" and prev_status != "skipped":
+        emit_event(
+            db,
+            event_type="food.meal.skipped",
+            household_id=household.id,
+            user_id=user.id,
+            entity_type="planned_meal",
+            entity_id=pm.id,
+            payload={"planned_meal_id": str(pm.id), "recipe_id": str(pm.recipe_id)},
+        )
+
+    db.commit()
+    return response
 
 
 # ---------- Shopping ----------

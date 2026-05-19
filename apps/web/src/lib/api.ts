@@ -1,8 +1,12 @@
 import type {
   CookedResponse,
+  MealPlan,
   PantryCaptureResponse,
   PantryItem,
+  PlannedMealStatus,
+  PlannedMealStatusResponse,
   StretchResponse,
+  WeekPlanResponse,
 } from "./types";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -60,6 +64,47 @@ export function markRecipeCooked(
   return api<CookedResponse>(`/api/v1/food/recipes/${recipeId}/cooked${qs}`, {
     method: "POST",
   });
+}
+
+export interface GeneratePlanArgs {
+  weekStart: string; // YYYY-MM-DD
+  targetBudgetUsd?: number;
+  dinnersPerWeek?: number;
+  maxCostPerServingUsd?: number;
+  dietaryConstraints?: string[];
+  notes?: string;
+}
+
+export function generateMealPlan(args: GeneratePlanArgs): Promise<WeekPlanResponse> {
+  return api<WeekPlanResponse>("/api/v1/food/meal-plans/generate", {
+    method: "POST",
+    body: JSON.stringify({
+      week_start: args.weekStart,
+      target_budget_usd: args.targetBudgetUsd,
+      dinners_per_week: args.dinnersPerWeek ?? 7,
+      max_cost_per_serving_usd: args.maxCostPerServingUsd,
+      dietary_constraints: args.dietaryConstraints ?? [],
+      notes: args.notes,
+    }),
+  });
+}
+
+export function getActiveMealPlan(): Promise<MealPlan | null> {
+  return api<MealPlan | null>("/api/v1/food/meal-plans/active");
+}
+
+export function updatePlannedMealStatus(
+  plannedMealId: string,
+  status: PlannedMealStatus,
+  servingsCooked?: number,
+): Promise<PlannedMealStatusResponse> {
+  return api<PlannedMealStatusResponse>(
+    `/api/v1/food/planned-meals/${plannedMealId}/status`,
+    {
+      method: "POST",
+      body: JSON.stringify({ status, servings_cooked: servingsCooked }),
+    },
+  );
 }
 
 /** Read a File as a base64 string (without the data:...;base64, prefix). */

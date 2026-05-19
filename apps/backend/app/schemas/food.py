@@ -177,3 +177,85 @@ class CookedResponse(BaseModel):
     cooked_from_pantry_pct: float
     decremented_item_ids: list[uuid.UUID]
     estimated_value_usd: float | None
+
+
+# ---------- Weekly meal plan (Sprint 3) ----------
+
+
+class WeekPlanConstraints(BaseModel):
+    """User-supplied parameters for a weekly plan generation."""
+
+    week_start: date
+    target_budget_usd: float | None = Field(default=None, ge=0)
+    dinners_per_week: int = Field(default=7, ge=1, le=7)
+    max_cost_per_serving_usd: float | None = Field(default=None, ge=0)
+    dietary_constraints: list[str] = Field(default_factory=list)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class AIPlannedMeal(BaseModel):
+    """One slot in the AI-generated week."""
+
+    planned_date: date
+    meal_type: str = Field(default="dinner", pattern=r"^(breakfast|lunch|dinner|snack)$")
+    recipe: AIRecipe
+    rationale: str | None = Field(
+        default=None,
+        description="Why this slot picks this recipe — usually mentions pantry items used",
+    )
+
+
+class AIWeekPlan(BaseModel):
+    """Full structured response from generate_weekly_plan."""
+
+    meals: list[AIPlannedMeal]
+    total_estimated_cost_usd: float | None = None
+    pantry_coverage_summary: str | None = None
+
+
+class PlannedMealRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    recipe_id: uuid.UUID | None
+    planned_date: date
+    meal_type: str
+    servings: int
+    status: str  # planned | prepped | cooked | skipped
+    notes: str | None
+
+
+class PlannedMealWithRecipe(PlannedMealRead):
+    """Eagerly-loaded planned meal + its recipe payload."""
+
+    recipe: RecipeRead | None = None
+
+
+class MealPlanRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    week_start: date
+    name: str | None
+    target_budget_usd: float | None
+    status: str  # draft | active | archived
+    meals: list[PlannedMealWithRecipe]
+
+
+class WeekPlanResponse(BaseModel):
+    plan: MealPlanRead
+    pantry_coverage_summary: str | None
+    total_estimated_cost_usd: float | None
+
+
+class PlannedMealStatusUpdate(BaseModel):
+    status: str = Field(..., pattern=r"^(planned|prepped|cooked|skipped)$")
+    servings_cooked: int | None = Field(default=None, ge=1, le=24)
+
+
+class PlannedMealStatusResponse(BaseModel):
+    planned_meal_id: uuid.UUID
+    new_status: str
+    cooked_from_pantry_pct: float | None = None
+    estimated_value_usd: float | None = None
+    decremented_item_ids: list[uuid.UUID] = Field(default_factory=list)
