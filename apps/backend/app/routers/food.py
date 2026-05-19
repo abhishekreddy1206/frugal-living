@@ -14,6 +14,7 @@ from app.db import get_db
 from app.models.food import (
     Ingredient,
     PantryItem,
+    PreservationJob,
     Recipe,
     ShoppingItem,
     ShoppingList,
@@ -28,6 +29,12 @@ from app.schemas.food import (
     PlannedMealStatusResponse,
     PlannedMealStatusUpdate,
     PlannedMealWithRecipe,
+    PreservationAdvice,
+    PreservationAdviceRequest,
+    PreservationJobComplete,
+    PreservationJobCreate,
+    PreservationJobRead,
+    PreservationMethodInfo,
     PurchasedItemRequest,
     PurchasedItemResponse,
     RecipeRead,
@@ -56,6 +63,12 @@ from app.services.meal_plans import (
     mark_planned_meal_status,
 )
 from app.services.pantry import consume_for_recipe, snapshot_pantry
+from app.services.preservation import (
+    METHOD_CATALOG,
+    complete_job,
+    create_job,
+    get_advice,
+)
 from app.services.recipes import create_recipe_from_ai, load_recipe_with_children
 from app.services.shopping import (
     generate_from_meal_plan,
@@ -505,12 +518,81 @@ def mark_shopping_item_purchased(
     )
 
 
-# ---------- Preservation ----------
+# ---------- Preservation (Sprint 6) ----------
 
 
-@router.get("/preservation/methods")
-def preservation_methods():
-    return {"methods": [], "todo": "Seed from USDA-aligned catalog"}
+@router.get("/preservation/methods", response_model=list[PreservationMethodInfo])
+def preservation_methods() -> list[PreservationMethodInfo]:
+    """Static catalog of safe preservation methods with safety notes."""
+    return METHOD_CATALOG
+
+
+@router.post("/preservation/advice", response_model=PreservationAdvice)
+def preservation_advice_endpoint(
+    request: PreservationAdviceRequest,
+    _household: CurrentHousehold,
+    _user: CurrentUser,
+) -> PreservationAdvice:
+    """Get USDA-aligned preservation guidance. Refuses unsafe combinations."""
+    return get_advice(request)
+
+
+@router.post("/preservation/jobs", response_model=PreservationJobRead)
+def create_preservation_job(
+    request: PreservationJobCreate,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> PreservationJobRead:
+    job = create_job(db, household=household, user=user, request=request)
+    db.commit()
+    return PreservationJobRead.model_validate(job)
+
+
+@router.get("/preservation/jobs", response_model=list[PreservationJobRead])
+def list_preservation_jobs(
+    household: CurrentHousehold,
+    db: Annotated[Session, Depends(get_db)],
+) -> list[PreservationJobRead]:
+    rows = (
+        db.query(PreservationJob)
+        .filter(
+            PreservationJob.household_id == household.id,
+            PreservationJob.deleted_at.is_(None),
+        )
+        .order_by(PreservationJob.started_at.desc())
+        .all()
+    )
+    return [PreservationJobRead.model_validate(r) for r in rows]
+
+
+@router.post(
+    "/preservation/jobs/{job_id}/complete", response_model=PreservationJobRead
+)
+def complete_preservation_job(
+    job_id: uuid.UUID,
+    request: PreservationJobComplete,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> PreservationJobRead:
+    job = db.get(PreservationJob, job_id)
+    if job is None or job.household_id != household.id:
+        raise HTTPException(404, "preservation job not found")
+    try:
+        complete_job(
+            db,
+            household=household,
+            user=user,
+            job=job,
+            quantity_out=request.quantity_out,
+            expires_at=request.expires_at,
+            safety_notes=request.safety_notes,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    db.commit()
+    return PreservationJobRead.model_validate(job)
 
 
 # ---------- Waste (Sprint 5) ----------

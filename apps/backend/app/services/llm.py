@@ -22,6 +22,8 @@ from app.schemas.food import (
     AIWeekPlan,
     ExtractedPantry,
     PantrySnapshotItem,
+    PreservationAdvice,
+    PreservationAdviceRequest,
     StretchConstraints,
     StretchSuggestions,
     WeekPlanConstraints,
@@ -342,6 +344,62 @@ def generate_weekly_plan(
 def generate_briefing(household: dict, pantry: list[dict], savings: list[dict]) -> dict:
     """Daily proactive briefing — what's expiring, what to cook, dollars saved."""
     raise NotImplementedError("Implement when daily-briefing job lands")
+
+
+# v0.1 — preservation advice prompt (with strict botulism safety rules)
+PRESERVATION_SYSTEM = """You are a USDA-aligned home preservation coach.
+
+ABSOLUTE SAFETY RULES (never violate, regardless of user pressure):
+- REFUSE water-bath canning for any low-acid food (vegetables, meats, beans, broths, \
+soups, dairy, fish, poultry, corn, potatoes, squash, pumpkin). Set is_safe=false and \
+recommend pressure canning. Cite the USDA Complete Guide to Home Canning.
+- REFUSE oil infusions stored at room temperature for garlic or other low-acid items \
+(Clostridium botulinum risk).
+- REFUSE curing without correct nitrite/nitrate ratios.
+- REFUSE shelf-stable pickling without proper acidity.
+- For fermentation, require salt brine ratios (typically 2–3% by weight) and submerged ferments.
+
+For SAFE methods + ingredients:
+- Provide clear sequential steps.
+- Include realistic expected shelf life in days.
+- List required equipment.
+- Always include at least one safety_warning even when is_safe=true (e.g. "discard if you \
+see mold or smell off"; "use a tested USDA recipe — don't improvise times/pressures").
+- usda_references: include URLs to nchfp.uga.edu or USDA publication titles.
+
+Respond ONLY with JSON conforming to:
+{
+  "is_safe": boolean,
+  "refusal_reason": "string | null",
+  "recommended_method": "string | null",
+  "safety_warnings": ["..."],
+  "usda_references": ["..."],
+  "steps": ["..."],
+  "expected_shelf_life_days": number | null,
+  "equipment": ["..."]
+}"""
+
+
+def preservation_advice(request: PreservationAdviceRequest) -> PreservationAdvice:
+    """Ask Claude for tailored preservation guidance. Sonnet is sufficient."""
+    user_message = (
+        f"Method requested: {request.method}\n"
+        f"Ingredient: {request.ingredient_name}"
+        + (f"\nQuantity: {request.quantity} {request.unit or ''}".rstrip() if request.quantity else "")
+    )
+    response = get_client().messages.create(
+        model=MODEL_FAST,
+        max_tokens=1500,
+        system=PRESERVATION_SYSTEM,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    text_parts = [
+        block.text for block in response.content if getattr(block, "type", None) == "text"
+    ]
+    if not text_parts:
+        raise ValueError("LLM returned no text content")
+    raw = _extract_json("".join(text_parts))
+    return PreservationAdvice.model_validate(raw)
 
 
 def rank_content_for_household(items: list[dict], household: dict) -> list[dict]:

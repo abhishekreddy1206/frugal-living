@@ -337,3 +337,82 @@ class SavingsRollup(BaseModel):
     cooked_meals_count: int
     waste_events_count: int
     expiring_soon: list[PantryItemRead] = Field(default_factory=list)
+
+
+# ---------- Preservation (Sprint 6) ----------
+
+
+PRESERVATION_METHODS = [
+    "canning_water_bath",
+    "canning_pressure",
+    "freezing",
+    "dehydrating",
+    "fermenting",
+    "pickling",
+    "curing",
+]
+_PRESERVATION_METHOD_PATTERN = "^(" + "|".join(PRESERVATION_METHODS) + ")$"
+
+
+class PreservationMethodInfo(BaseModel):
+    method: str
+    label: str
+    safe_for: list[str]  # high-acid | low-acid | dairy | meat | universal
+    typical_shelf_life_days: int
+    safety_notes: str
+
+
+class PreservationAdviceRequest(BaseModel):
+    method: str = Field(..., pattern=_PRESERVATION_METHOD_PATTERN)
+    ingredient_name: str = Field(..., min_length=1, max_length=200)
+    quantity: float | None = Field(default=None, ge=0)
+    unit: str | None = Field(default=None, max_length=32)
+
+
+class PreservationAdvice(BaseModel):
+    """Structured guidance returned by Claude. May refuse on safety grounds."""
+
+    is_safe: bool
+    refusal_reason: str | None = Field(
+        default=None,
+        description="If is_safe=False, why we refuse (e.g. low-acid water bath)",
+    )
+    recommended_method: str | None = None
+    safety_warnings: list[str] = Field(default_factory=list)
+    usda_references: list[str] = Field(default_factory=list)
+    steps: list[str] = Field(default_factory=list)
+    expected_shelf_life_days: int | None = None
+    equipment: list[str] = Field(default_factory=list)
+
+
+class PreservationJobCreate(BaseModel):
+    method: str = Field(..., pattern=_PRESERVATION_METHOD_PATTERN)
+    ingredient_name: str = Field(..., min_length=1, max_length=200)
+    quantity_in: float | None = Field(default=None, ge=0)
+    unit: str | None = Field(default=None, max_length=32)
+    source_pantry_item_id: uuid.UUID | None = None
+    safety_check_passed: bool = False
+    notes: str | None = None
+
+
+class PreservationJobRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    method: str
+    ingredient_name: str
+    quantity_in: float | None
+    quantity_out: float | None
+    unit: str | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    expires_at: date | None
+    safety_check_passed: bool
+    safety_notes: str | None
+    notes: str | None
+
+
+class PreservationJobComplete(BaseModel):
+    quantity_out: float | None = Field(default=None, ge=0)
+    expires_at: date | None = None
+    safety_notes: str | None = None

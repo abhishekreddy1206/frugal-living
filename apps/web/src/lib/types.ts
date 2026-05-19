@@ -163,3 +163,48 @@ export interface SavingsRollup {
   waste_events_count: number;
   expiring_soon: PantryItem[];
 }
+
+// ---------- Preservation ----------
+
+export type PreservationMethod =
+  | "canning_water_bath"
+  | "canning_pressure"
+  | "freezing"
+  | "dehydrating"
+  | "fermenting"
+  | "pickling"
+  | "curing";
+
+export interface PreservationMethodInfo {
+  method: PreservationMethod;
+  label: string;
+  safe_for: string[];
+  typical_shelf_life_days: number;
+  safety_notes: string;
+}
+
+export interface PreservationAdvice {
+  is_safe: boolean;
+  refusal_reason: string | null;
+  recommended_method: string | null;
+  safety_warnings: string[];
+  usda_references: string[];
+  steps: string[];
+  expected_shelf_life_days: number | null;
+  equipment: string[];
+}
+
+export interface PreservationJob {
+  id: string;
+  method: PreservationMethod;
+  ingredient_name: string;
+  quantity_in: number | null;
+  quantity_out: number | null;
+  unit: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  expires_at: string | null;
+  safety_check_passed: boolean;
+  safety_notes: string | null;
+  notes: string | null;
+}

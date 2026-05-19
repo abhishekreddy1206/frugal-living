@@ -5,6 +5,10 @@ import type {
   PantryItem,
   PlannedMealStatus,
   PlannedMealStatusResponse,
+  PreservationAdvice,
+  PreservationJob,
+  PreservationMethod,
+  PreservationMethodInfo,
   PurchasedItemResponse,
   SavingsRollup,
   ShoppingList,
@@ -157,6 +161,66 @@ export function logWaste(args: WasteLogArgs): Promise<WasteEvent> {
 
 export function getSavingsRollup(periodDays = 30): Promise<SavingsRollup> {
   return api<SavingsRollup>(`/api/v1/food/waste/savings?period_days=${periodDays}`);
+}
+
+export function getPreservationMethods(): Promise<PreservationMethodInfo[]> {
+  return api<PreservationMethodInfo[]>("/api/v1/food/preservation/methods");
+}
+
+export function getPreservationAdvice(
+  method: PreservationMethod,
+  ingredientName: string,
+  quantity?: number,
+  unit?: string,
+): Promise<PreservationAdvice> {
+  return api<PreservationAdvice>("/api/v1/food/preservation/advice", {
+    method: "POST",
+    body: JSON.stringify({
+      method,
+      ingredient_name: ingredientName,
+      quantity,
+      unit,
+    }),
+  });
+}
+
+export function createPreservationJob(args: {
+  method: PreservationMethod;
+  ingredientName: string;
+  quantityIn?: number;
+  unit?: string;
+  safetyCheckPassed: boolean;
+  notes?: string;
+}): Promise<PreservationJob> {
+  return api<PreservationJob>("/api/v1/food/preservation/jobs", {
+    method: "POST",
+    body: JSON.stringify({
+      method: args.method,
+      ingredient_name: args.ingredientName,
+      quantity_in: args.quantityIn,
+      unit: args.unit,
+      safety_check_passed: args.safetyCheckPassed,
+      notes: args.notes,
+    }),
+  });
+}
+
+export function listPreservationJobs(): Promise<PreservationJob[]> {
+  return api<PreservationJob[]>("/api/v1/food/preservation/jobs");
+}
+
+export function completePreservationJob(
+  jobId: string,
+  quantityOut?: number,
+  safetyNotes?: string,
+): Promise<PreservationJob> {
+  return api<PreservationJob>(`/api/v1/food/preservation/jobs/${jobId}/complete`, {
+    method: "POST",
+    body: JSON.stringify({
+      quantity_out: quantityOut,
+      safety_notes: safetyNotes,
+    }),
+  });
 }
 
 /** Read a File as a base64 string (without the data:...;base64, prefix). */
