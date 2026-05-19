@@ -1,56 +1,105 @@
 """AI module — Claude conversations (chat sidebar), voice, daily briefings."""
-from fastapi import APIRouter, Depends
+from __future__ import annotations
+
+import uuid
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth import CurrentHousehold, CurrentUser
 from app.db import get_db
+from app.models.ai import Briefing
+from app.schemas.food import BriefingRead
+from app.services.briefings import (
+    get_or_generate_today,
+    get_today,
+    mark_read,
+)
 
 router = APIRouter()
 
 
-# ---------- Conversations (chat sidebar) ----------
+# ---------- Conversations (chat sidebar) — stubs ----------
+
 
 @router.get("/conversations")
-def list_conversations(db: Session = Depends(get_db)):
+def list_conversations(db: Annotated[Session, Depends(get_db)]):
     return {"conversations": [], "todo": "List recent Conversation rows for household"}
 
 
 @router.post("/conversations")
-def create_conversation(db: Session = Depends(get_db)):
+def create_conversation(db: Annotated[Session, Depends(get_db)]):
     return {"conversation": None, "todo": "Create Conversation, return id"}
 
 
 @router.get("/conversations/{conv_id}/messages")
-def list_messages(conv_id: str, db: Session = Depends(get_db)):
+def list_messages(conv_id: str, db: Annotated[Session, Depends(get_db)]):
     return {"messages": [], "todo": "Return Message rows ordered by created_at"}
 
 
 @router.post("/conversations/{conv_id}/messages")
-def post_message(conv_id: str, db: Session = Depends(get_db)):
-    """Send a user message, get an assistant response (streamed in production)."""
+def post_message(conv_id: str, db: Annotated[Session, Depends(get_db)]):
     return {"reply": None, "todo": "Wire to Claude with conversation history + tools"}
 
 
-# ---------- Voice ----------
+# ---------- Voice — stubs ----------
+
 
 @router.post("/voice/session")
-def start_voice_session(db: Session = Depends(get_db)):
-    """Start a 'hey Hearth' voice session. Returns a session id + websocket URL."""
+def start_voice_session(db: Annotated[Session, Depends(get_db)]):
     return {"session_id": None, "ws_url": None, "todo": "Wire to services.voice"}
 
 
 @router.post("/voice/session/{session_id}/end")
-def end_voice_session(session_id: str, db: Session = Depends(get_db)):
+def end_voice_session(session_id: str, db: Annotated[Session, Depends(get_db)]):
     return {"session_id": session_id, "todo": "Persist VoiceSession, transcript, duration"}
 
 
-# ---------- Briefings ----------
-
-@router.get("/briefings/today")
-def todays_briefing(db: Session = Depends(get_db)):
-    return {"briefing": None, "todo": "Read Briefing for today; generate if missing"}
+# ---------- Briefings (Sprint 7) ----------
 
 
-@router.post("/briefings/generate")
-def generate_briefing(db: Session = Depends(get_db)):
-    """Force-generate a briefing for the household (also runs as a scheduled job)."""
-    return {"briefing": None, "todo": "Wire to services.llm.generate_briefing"}
+@router.get("/briefings/today", response_model=BriefingRead)
+def todays_briefing(
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> BriefingRead:
+    """Return today's briefing, generating it on demand if missing."""
+    briefing = get_or_generate_today(
+        db, household=household, user_id=user.id, force=False
+    )
+    db.commit()
+    return BriefingRead.model_validate(briefing)
+
+
+@router.post("/briefings/generate", response_model=BriefingRead)
+def regenerate_briefing(
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> BriefingRead:
+    """Force a fresh briefing — soft-deletes the existing today and regenerates."""
+    briefing = get_or_generate_today(
+        db, household=household, user_id=user.id, force=True
+    )
+    db.commit()
+    return BriefingRead.model_validate(briefing)
+
+
+@router.post("/briefings/{briefing_id}/read", response_model=BriefingRead)
+def mark_briefing_read(
+    briefing_id: uuid.UUID,
+    household: CurrentHousehold,
+    db: Annotated[Session, Depends(get_db)],
+) -> BriefingRead:
+    briefing = db.get(Briefing, briefing_id)
+    if briefing is None or briefing.household_id != household.id:
+        raise HTTPException(404, "briefing not found")
+    mark_read(db, briefing)
+    db.commit()
+    return BriefingRead.model_validate(briefing)
+
+
+# Re-exported for use by other modules
+__all__ = ["router", "get_today"]

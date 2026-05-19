@@ -164,6 +164,16 @@ export interface SavingsRollup {
   expiring_soon: PantryItem[];
 }
 
+// ---------- Briefing ----------
+
+export interface Briefing {
+  id: string;
+  for_date: string;
+  headline: string | null;
+  body_markdown: string;
+  was_read: boolean;
+}
+
 // ---------- Preservation ----------
 
 export type PreservationMethod =

@@ -416,3 +416,23 @@ class PreservationJobComplete(BaseModel):
     quantity_out: float | None = Field(default=None, ge=0)
     expires_at: date | None = None
     safety_notes: str | None = None
+
+
+# ---------- Daily briefing (Sprint 7) ----------
+
+
+class BriefingRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    for_date: datetime
+    headline: str | None
+    body_markdown: str
+    was_read: bool
+
+
+class AIBriefing(BaseModel):
+    """Structured response from the briefing LLM call."""
+
+    headline: str = Field(..., min_length=1, max_length=300)
+    body_markdown: str = Field(..., min_length=1)

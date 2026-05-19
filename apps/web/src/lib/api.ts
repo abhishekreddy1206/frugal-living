@@ -1,4 +1,5 @@
 import type {
+  Briefing,
   CookedResponse,
   MealPlan,
   PantryCaptureResponse,
@@ -161,6 +162,18 @@ export function logWaste(args: WasteLogArgs): Promise<WasteEvent> {
 
 export function getSavingsRollup(periodDays = 30): Promise<SavingsRollup> {
   return api<SavingsRollup>(`/api/v1/food/waste/savings?period_days=${periodDays}`);
+}
+
+export function getTodaysBriefing(): Promise<Briefing> {
+  return api<Briefing>("/api/v1/ai/briefings/today");
+}
+
+export function regenerateBriefing(): Promise<Briefing> {
+  return api<Briefing>("/api/v1/ai/briefings/generate", { method: "POST" });
+}
+
+export function markBriefingRead(id: string): Promise<Briefing> {
+  return api<Briefing>(`/api/v1/ai/briefings/${id}/read`, { method: "POST" });
 }
 
 export function getPreservationMethods(): Promise<PreservationMethodInfo[]> {

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import DEV_HOUSEHOLD_ID, seed_dev_fixtures
 from app.db import SessionLocal, engine
+from app.models.ai import Briefing
 from app.models.core import Event
 from app.models.food import (
     FoodWasteEvent,
@@ -47,6 +48,7 @@ def _clean_household_data():
         # Recipes are not scoped by household, but we wipe ai-generated ones
         # because tests create them freely. User-created recipes (if any) stay.
         db_.query(Recipe).filter_by(is_ai_generated=True).delete()
+        db_.query(Briefing).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
         db_.query(Event).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
         db_.commit()
     yield

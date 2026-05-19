@@ -19,11 +19,13 @@ from anthropic import Anthropic
 
 from app.config import settings
 from app.schemas.food import (
+    AIBriefing,
     AIWeekPlan,
     ExtractedPantry,
     PantrySnapshotItem,
     PreservationAdvice,
     PreservationAdviceRequest,
+    SavingsRollup,
     StretchConstraints,
     StretchSuggestions,
     WeekPlanConstraints,
@@ -341,9 +343,58 @@ def generate_weekly_plan(
     return AIWeekPlan.model_validate(raw)
 
 
-def generate_briefing(household: dict, pantry: list[dict], savings: list[dict]) -> dict:
-    """Daily proactive briefing — what's expiring, what to cook, dollars saved."""
-    raise NotImplementedError("Implement when daily-briefing job lands")
+# v0.1 — daily briefing prompt
+BRIEFING_SYSTEM = """You are Hearth — a warm, frugal home assistant writing a short daily \
+briefing for one household.
+
+Tone: human, encouraging, specific. No emojis except in section headers if useful. No marketing speak. \
+Use the household's pantry + this week's savings as concrete anchors.
+
+Always include:
+  1. A short headline (≤ 80 chars) that captures today's most useful nudge.
+  2. A body in Markdown with 2–4 short sections, e.g.:
+     - **Expiring soon**: one-line items list with what to do
+     - **You cooked this week**: count, $ saved
+     - **A small idea**: one frugal tip relevant to the pantry
+  Skip a section entirely if there's nothing meaningful to say there.
+
+Stay under ~150 words total. Don't talk about features that don't exist. Don't \
+recommend unsafe preservation methods. Never mention calories or macros.
+
+Respond ONLY with JSON conforming to:
+{ "headline": "string", "body_markdown": "string" }"""
+
+
+def generate_briefing(
+    pantry: list[PantrySnapshotItem],
+    savings: SavingsRollup,
+) -> AIBriefing:
+    """Daily proactive briefing — Sonnet 4.6."""
+    expiring = [p for p in pantry if p.expires_in_days is not None and p.expires_in_days <= 5]
+    user_message = (
+        f"Pantry total: {len(pantry)} items. Expiring within 5 days: {len(expiring)}.\n"
+        + _format_pantry_for_prompt(expiring)
+        + "\n\n"
+        + f"Last {savings.period_days} days savings:\n"
+        + f"  Cooked-from-pantry value: ${savings.cooked_from_pantry_value_usd:.2f} "
+        + f"({savings.cooked_meals_count} meals)\n"
+        + f"  Wasted value: ${savings.waste_value_usd:.2f} "
+        + f"({savings.waste_events_count} events)\n"
+        + f"  Net: ${savings.net_savings_usd:.2f}"
+    )
+    response = get_client().messages.create(
+        model=MODEL_FAST,
+        max_tokens=600,
+        system=BRIEFING_SYSTEM,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    text_parts = [
+        block.text for block in response.content if getattr(block, "type", None) == "text"
+    ]
+    if not text_parts:
+        raise ValueError("LLM returned no text content")
+    raw = _extract_json("".join(text_parts))
+    return AIBriefing.model_validate(raw)
 
 
 # v0.1 — preservation advice prompt (with strict botulism safety rules)
