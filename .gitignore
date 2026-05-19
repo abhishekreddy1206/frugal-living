@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+.pnpm-store/
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Editors
+.vscode/
+.idea/
+.DS_Store
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Local DB volumes
+postgres-data/
+
+# Logs
+*.log
+
+# pnpm temp files (in case install gets interrupted)
+_tmp_*
+*.bak
+
+# Stray dirs from sandbox scaffolding (delete on first checkout)
+apps/web/sessions/
+*.tsbuildinfo
+
