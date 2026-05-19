@@ -140,3 +140,26 @@ export interface PurchasedItemResponse {
   pantry_item_id: string;
   status: "purchased" | "already_purchased";
 }
+
+// ---------- Waste / savings ----------
+
+export interface WasteEvent {
+  id: string;
+  pantry_item_id: string | null;
+  ingredient_name: string;
+  quantity: number | null;
+  unit: string | null;
+  reason: string | null;
+  estimated_value_usd: number | null;
+  occurred_on: string;
+}
+
+export interface SavingsRollup {
+  period_days: number;
+  cooked_from_pantry_value_usd: number;
+  waste_value_usd: number;
+  net_savings_usd: number;
+  cooked_meals_count: number;
+  waste_events_count: number;
+  expiring_soon: PantryItem[];
+}

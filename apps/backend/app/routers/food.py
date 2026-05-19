@@ -31,10 +31,13 @@ from app.schemas.food import (
     PurchasedItemRequest,
     PurchasedItemResponse,
     RecipeRead,
+    SavingsRollup,
     ShoppingItemRead,
     ShoppingListRead,
     StretchConstraints,
     StretchResponse,
+    WasteEventRead,
+    WasteLogRequest,
     WeekPlanConstraints,
     WeekPlanResponse,
 )
@@ -59,6 +62,7 @@ from app.services.shopping import (
     load_active_list,
     mark_purchased,
 )
+from app.services.waste import log_waste, savings_rollup
 
 router = APIRouter()
 
@@ -509,9 +513,26 @@ def preservation_methods():
     return {"methods": [], "todo": "Seed from USDA-aligned catalog"}
 
 
-# ---------- Waste ----------
+# ---------- Waste (Sprint 5) ----------
 
 
-@router.post("/waste")
-def log_waste(db: Annotated[Session, Depends(get_db)]):
-    return {"event": None, "todo": "Wire to FoodWasteEvent + emit savings/streak update"}
+@router.post("/waste", response_model=WasteEventRead)
+def post_waste(
+    request: WasteLogRequest,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> WasteEventRead:
+    """Log a food waste event. If linked to a pantry item, decrement/delete it."""
+    event = log_waste(db, household=household, user_id=user.id, request=request)
+    db.commit()
+    return WasteEventRead.model_validate(event)
+
+
+@router.get("/waste/savings", response_model=SavingsRollup)
+def waste_savings(
+    household: CurrentHousehold,
+    db: Annotated[Session, Depends(get_db)],
+    period_days: Annotated[int, Query(ge=1, le=365)] = 30,
+) -> SavingsRollup:
+    return savings_rollup(db, household=household, period_days=period_days)

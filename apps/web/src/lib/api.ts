@@ -6,8 +6,10 @@ import type {
   PlannedMealStatus,
   PlannedMealStatusResponse,
   PurchasedItemResponse,
+  SavingsRollup,
   ShoppingList,
   StretchResponse,
+  WasteEvent,
   WeekPlanResponse,
 } from "./types";
 
@@ -128,6 +130,33 @@ export function markShoppingItemPurchased(
       body: JSON.stringify({ actual_price_usd: actualPriceUsd }),
     },
   );
+}
+
+export interface WasteLogArgs {
+  pantryItemId?: string;
+  ingredientName: string;
+  quantity?: number;
+  unit?: string;
+  reason?: "spoiled" | "forgotten" | "over_cooked" | "over_purchased" | "other";
+  estimatedValueUsd?: number;
+}
+
+export function logWaste(args: WasteLogArgs): Promise<WasteEvent> {
+  return api<WasteEvent>("/api/v1/food/waste", {
+    method: "POST",
+    body: JSON.stringify({
+      pantry_item_id: args.pantryItemId,
+      ingredient_name: args.ingredientName,
+      quantity: args.quantity,
+      unit: args.unit,
+      reason: args.reason,
+      estimated_value_usd: args.estimatedValueUsd,
+    }),
+  });
+}
+
+export function getSavingsRollup(periodDays = 30): Promise<SavingsRollup> {
+  return api<SavingsRollup>(`/api/v1/food/waste/savings?period_days=${periodDays}`);
 }
 
 /** Read a File as a base64 string (without the data:...;base64, prefix). */

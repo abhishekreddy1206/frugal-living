@@ -298,3 +298,42 @@ class PurchasedItemResponse(BaseModel):
     shopping_item_id: uuid.UUID
     pantry_item_id: uuid.UUID
     status: str
+
+
+# ---------- Food waste (Sprint 5) ----------
+
+
+class WasteLogRequest(BaseModel):
+    pantry_item_id: uuid.UUID | None = None
+    ingredient_name: str = Field(..., min_length=1, max_length=200)
+    quantity: float | None = Field(default=None, ge=0)
+    unit: str | None = Field(default=None, max_length=32)
+    reason: str | None = Field(
+        default=None,
+        pattern=r"^(spoiled|forgotten|over_cooked|over_purchased|other)$",
+    )
+    estimated_value_usd: float | None = Field(default=None, ge=0)
+    occurred_on: date | None = None
+
+
+class WasteEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    pantry_item_id: uuid.UUID | None
+    ingredient_name: str
+    quantity: float | None
+    unit: str | None
+    reason: str | None
+    estimated_value_usd: float | None
+    occurred_on: date
+
+
+class SavingsRollup(BaseModel):
+    period_days: int
+    cooked_from_pantry_value_usd: float
+    waste_value_usd: float
+    net_savings_usd: float
+    cooked_meals_count: int
+    waste_events_count: int
+    expiring_soon: list[PantryItemRead] = Field(default_factory=list)
