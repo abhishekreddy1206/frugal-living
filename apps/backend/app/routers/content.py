@@ -1,11 +1,12 @@
 """Content module — capture & feed external content (YouTube now; blog/Reddit later)."""
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentHousehold, CurrentUser
@@ -16,18 +17,31 @@ from app.services.events import emit_event
 from app.services.youtube import fetch_youtube_metadata, parse_video_id
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/feed", response_model=FeedResponse)
 def feed(
     db: Annotated[Session, Depends(get_db)],
     topic: str | None = None,
+    limit: int = Query(50, ge=1, le=200, description="Page size."),
+    offset: int = Query(0, ge=0, description="Rows to skip for pagination."),
 ) -> FeedResponse:
-    """Captured content, newest first. Optionally filtered by topic."""
+    """Captured content, newest first. Optionally filtered by topic; paginated.
+
+    `count` is the size of the returned page (not the global total) — the feed
+    is a shared catalog (see the capture handler), so an unbounded total query
+    isn't worth the second round-trip until a paging UI needs it.
+    """
     query = db.query(ContentItem).filter(ContentItem.deleted_at.is_(None))
     if topic:
         query = query.filter(ContentItem.topic == topic)
-    rows = query.order_by(ContentItem.created_at.desc()).all()
+    rows = (
+        query.order_by(ContentItem.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
     return FeedResponse(
         items=[ContentItemRead.model_validate(r) for r in rows],
         count=len(rows),
@@ -41,7 +55,13 @@ def capture(
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> ContentItemRead:
-    """Capture a YouTube video by URL into the content feed."""
+    """Capture a YouTube video by URL into the content feed.
+
+    The feed is a shared, global catalog (see ContentItem) — captured items have
+    no household_id and are visible to every household. The emitted
+    `content.item.captured` event records *who* captured the item (household +
+    user) as an activity record; it does not imply per-household ownership.
+    """
     if parse_video_id(request.url) is None:
         raise HTTPException(422, "Only YouTube video URLs are supported right now")
 
@@ -64,6 +84,7 @@ def capture(
             existing.deleted_at = None  # re-capture an item that was removed
             db.commit()
             db.refresh(existing)
+            logger.info("content item restored on re-capture: external_id=%s", meta.video_id)
         return ContentItemRead.model_validate(existing)
 
     item = ContentItem(
@@ -94,6 +115,7 @@ def capture(
     )
     db.commit()
     db.refresh(item)
+    logger.info("content item captured: external_id=%s topic=%s", meta.video_id, request.topic)
     return ContentItemRead.model_validate(item)
 
 
@@ -108,6 +130,7 @@ def delete_item(
         raise HTTPException(404, "content item not found")
     item.deleted_at = datetime.now(UTC)
     db.commit()
+    logger.info("content item soft-deleted: id=%s", item_id)
     return {"status": "deleted", "id": str(item_id)}
 
 

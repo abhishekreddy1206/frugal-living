@@ -67,7 +67,16 @@ def fetch_youtube_metadata(url: str) -> YouTubeMetadata:
     if resp.status_code != 200:
         raise ValueError("YouTube could not resolve that video (private or removed?)")
 
-    data = resp.json()
+    # A 200 is no guarantee of a well-formed oEmbed payload — proxies, captcha
+    # walls and outages all return 200 with an unexpected body. Parse defensively
+    # so the caller always sees a clean ValueError (→ HTTP 422), never a 500.
+    try:
+        data = resp.json()
+    except ValueError as e:
+        raise ValueError("YouTube returned an unreadable response for that video") from e
+    if not isinstance(data, dict):
+        raise ValueError("YouTube returned an unexpected response for that video")
+
     return YouTubeMetadata(
         video_id=video_id,
         url=canonical,

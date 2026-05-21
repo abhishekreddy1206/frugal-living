@@ -8,6 +8,11 @@ API, restore the SDK client in `get_client()` (the reference body is in its
 docstring). Nothing else in this module changes — `_ClaudeCliClient` is a
 drop-in stand-in for `anthropic.Anthropic`.
 
+Note: the CLI transport has no output-token cap — the `max_tokens` passed to
+`create()` is accepted for SDK-signature compatibility but ignored. Response
+length and cost discipline therefore rely entirely on prompt wording (see
+CLAUDE.md "Cost discipline"); restoring the SDK transport restores the cap.
+
 Model selection by job (see CLAUDE.md "LLM patterns"):
   MODEL_FAST   — Sonnet 4.6, recipe gen, planning, ranking
   MODEL_SMART  — Opus 4.7, multi-constraint optimization (meal plan)
@@ -20,6 +25,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 import shutil
@@ -40,6 +46,8 @@ from app.schemas.food import (
     StretchSuggestions,
     WeekPlanConstraints,
 )
+
+logger = logging.getLogger(__name__)
 
 MODEL_FAST = "claude-sonnet-4-6"
 MODEL_SMART = "claude-opus-4-7"
@@ -86,6 +94,7 @@ def _run_claude_cli(prompt: str, *, model: str, read_dir: str | None = None) -> 
     env = os.environ.copy()
     env.pop("ANTHROPIC_API_KEY", None)
 
+    logger.debug("claude CLI invoke: model=%s vision=%s", model, read_dir is not None)
     try:
         proc = subprocess.run(
             args,
@@ -96,23 +105,28 @@ def _run_claude_cli(prompt: str, *, model: str, read_dir: str | None = None) -> 
             env=env,
         )
     except FileNotFoundError as e:
+        logger.error("claude CLI binary not found on PATH")
         raise RuntimeError(
             "claude CLI not found. Install Claude Code, or restore the Anthropic "
             "SDK client in app/services/llm.py:get_client()."
         ) from e
     except subprocess.TimeoutExpired as e:
+        logger.error("claude CLI timed out after %ss (model=%s)", _CLI_TIMEOUT_S, model)
         raise RuntimeError(f"claude CLI timed out after {_CLI_TIMEOUT_S}s") from e
 
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()[:500]
+        logger.error("claude CLI exited %s (model=%s): %s", proc.returncode, model, detail)
         raise RuntimeError(f"claude CLI exited {proc.returncode}: {detail}")
 
     stdout = proc.stdout.strip()
     try:
         envelope = json.loads(stdout)
     except json.JSONDecodeError:
+        logger.warning("claude CLI stdout was not the expected JSON envelope; using raw text")
         return stdout  # tolerate a raw-text response
     if envelope.get("is_error"):
+        logger.error("claude CLI returned an error envelope (model=%s)", model)
         raise RuntimeError(
             f"claude CLI returned an error: {str(envelope.get('result', stdout))[:500]}"
         )

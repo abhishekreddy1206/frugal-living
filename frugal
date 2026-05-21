@@ -76,7 +76,7 @@ up() {
     info "Stopping dev servers…"
     kill "$api_pid" "$web_pid" 2>/dev/null
     # uvicorn --reload and next spawn children — sweep the ports as a backstop.
-    lsof -ti:8000 -ti:3000 2>/dev/null | xargs kill 2>/dev/null
+    lsof -ti:8000,3000 2>/dev/null | xargs kill 2>/dev/null
     ok "Servers stopped. Postgres is still up — run 'frugal down' for a full teardown."
   }
   trap 'cleanup; exit 0' INT TERM
@@ -91,7 +91,7 @@ up() {
 
 down() {
   info "Stopping dev servers…"
-  lsof -ti:8000 -ti:3000 2>/dev/null | xargs kill 2>/dev/null
+  lsof -ti:8000,3000 2>/dev/null | xargs kill 2>/dev/null
   pkill -f 'uvicorn app.main:app' 2>/dev/null
   pkill -f 'next dev' 2>/dev/null
   info "Stopping Postgres…"

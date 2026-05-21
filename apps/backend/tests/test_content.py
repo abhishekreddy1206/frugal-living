@@ -13,6 +13,7 @@ from app.services.youtube import YouTubeMetadata, parse_video_id
 
 VIDEO_A = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 VIDEO_B = "https://youtu.be/9bZkp7q19f0"
+VIDEO_C = "https://www.youtube.com/watch?v=M7lc1UVf-VE"
 
 
 @pytest.fixture
@@ -64,6 +65,21 @@ def test_capture_rejects_non_youtube_url(client, mock_youtube):
     assert "YouTube" in resp.json()["detail"]
 
 
+def test_capture_rejects_unknown_topic(client, mock_youtube):
+    resp = client.post(
+        "/api/v1/content/capture", json={"url": VIDEO_A, "topic": "nonsense"}
+    )
+    assert resp.status_code == 422
+
+
+def test_capture_accepts_a_valid_non_default_topic(client, mock_youtube):
+    resp = client.post(
+        "/api/v1/content/capture", json={"url": VIDEO_A, "topic": "general"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["topic"] == "general"
+
+
 def test_capture_propagates_unresolvable_video(client, monkeypatch):
     def boom(url: str) -> YouTubeMetadata:
         raise ValueError("YouTube could not resolve that video (private or removed?)")
@@ -97,6 +113,27 @@ def test_feed_lists_captured_newest_first(client, mock_youtube):
     # VIDEO_B was captured last, so it sorts first.
     assert body["items"][0]["external_id"] == "9bZkp7q19f0"
     assert body["items"][1]["external_id"] == "dQw4w9WgXcQ"
+
+
+def test_feed_respects_limit_and_offset(client, mock_youtube):
+    for url in (VIDEO_A, VIDEO_B, VIDEO_C):
+        client.post("/api/v1/content/capture", json={"url": url})
+
+    page1 = client.get("/api/v1/content/feed?limit=2")
+    assert page1.status_code == 200, page1.text
+    assert len(page1.json()["items"]) == 2
+
+    # Offset past the first page yields the remaining (oldest) item.
+    page2 = client.get("/api/v1/content/feed?limit=2&offset=2")
+    assert page2.status_code == 200
+    items = page2.json()["items"]
+    assert len(items) == 1
+    assert items[0]["external_id"] == "dQw4w9WgXcQ"  # VIDEO_A, captured first
+
+
+def test_feed_rejects_out_of_range_limit(client):
+    assert client.get("/api/v1/content/feed?limit=0").status_code == 422
+    assert client.get("/api/v1/content/feed?limit=9999").status_code == 422
 
 
 def test_delete_soft_deletes_and_drops_from_feed(client, mock_youtube):

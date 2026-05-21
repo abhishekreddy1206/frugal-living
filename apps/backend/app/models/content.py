@@ -48,6 +48,10 @@ class ContentItem(Base, TimestampMixin):
     """
     A single piece of curated or generated content — video, blog post, Reddit thread,
     or AI-generated article. Recipes can be `imported_from_content_id` to a row here.
+
+    This is a **shared, global catalog**: rows intentionally have no household_id,
+    so every household sees the same feed. Per-household saved state (and any
+    future per-household visibility) belongs in ContentBookmark, never here.
     """
     __tablename__ = "items"
     __table_args__ = (
