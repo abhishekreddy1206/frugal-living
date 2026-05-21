@@ -59,10 +59,7 @@ export default function ShoppingPage() {
   return (
     <div className="min-h-screen px-6 py-10 md:px-12 max-w-3xl mx-auto">
       <header className="mb-8">
-        <a href="/" className="text-sm text-stone-500 hover:text-stone-700">
-          ← Home
-        </a>
-        <h1 className="mt-3 text-3xl font-bold text-stone-900">Shopping list</h1>
+        <h1 className="text-3xl font-bold text-ink">Shopping list</h1>
         <p className="mt-1 text-stone-600">
           Built from this week&apos;s plan minus what&apos;s already in your pantry.
         </p>

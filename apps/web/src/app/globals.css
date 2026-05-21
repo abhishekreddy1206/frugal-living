@@ -2,4 +2,54 @@
 @tailwind components;
 @tailwind utilities;
 
-body { @apply bg-stone-50 text-stone-900; }
+@layer base {
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    /* faint paper grain so flat areas feel like a printed almanac */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+    letter-spacing: -0.012em;
+  }
+
+  ::selection {
+    background: #bb5a36;
+    color: #fffdf7;
+  }
+}
+
+@layer components {
+  /* tiny tracked-out label, used for eyebrows and section headers */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-faint;
+  }
+
+  /* a hairline rule that fades — editorial divider */
+  .rule-fade {
+    height: 1px;
+    background: linear-gradient(to right, #e4d9bf, transparent);
+  }
+}
+
+/* warm, slim scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #ddcfae;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c9b88f;
+  background-clip: content-box;
+}

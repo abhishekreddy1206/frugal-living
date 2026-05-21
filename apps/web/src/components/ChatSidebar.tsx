@@ -4,60 +4,86 @@ import { useState } from "react";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
+function Flame({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" className={className} fill="currentColor" aria-hidden>
+      <path d="M8 2C5 5 4 7 4 9.2A4 4 0 0 0 12 9.2C12 7 11 5 8 2Z" />
+    </svg>
+  );
+}
+
 /**
- * Always-on Claude chat sidebar. Knows about the current pantry, meal plan, and
- * household. Stub for now — wire to POST /api/v1/ai/conversations/{id}/messages.
+ * Always-available Hearth chat. Collapsed to a pill by default so it never
+ * crowds the page. Stub — wire to POST /api/v1/ai/conversations/{id}/messages.
  */
 export default function ChatSidebar() {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([
     {
       role: "assistant",
-      content: "Hey — I can help you stretch your pantry, plan meals, or just talk through what to cook. What's up?",
+      content:
+        "Hello. I can help you stretch your pantry, plan a week of meals, or think through what to cook tonight.",
     },
   ]);
   const [draft, setDraft] = useState("");
 
-  async function send() {
+  function send() {
     if (!draft.trim()) return;
-    const userMsg: Msg = { role: "user", content: draft };
-    setMsgs((m) => [...m, userMsg]);
-    setDraft("");
-    // TODO: POST to /api/v1/ai/conversations/{id}/messages and stream response.
     setMsgs((m) => [
       ...m,
-      { role: "assistant", content: "(stub) Backend wiring pending — see apps/backend/app/routers/ai.py" },
+      { role: "user", content: draft },
+      {
+        role: "assistant",
+        content:
+          "Conversational chat isn't wired up yet — the endpoint lives in apps/backend/app/routers/ai.py.",
+      },
     ]);
+    setDraft("");
   }
 
   if (!open) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed right-4 bottom-4 rounded-full bg-stone-900 text-white px-4 py-2 shadow-lg"
+        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-clay px-5 py-3 text-sm font-semibold text-paper shadow-warm-lg transition hover:bg-clay-deep"
       >
-        Chat
+        <Flame className="h-4 w-4" />
+        Ask Hearth
       </button>
     );
   }
 
   return (
-    <aside className="w-80 border-l border-stone-200 bg-white flex flex-col">
-      <header className="flex items-center justify-between p-3 border-b border-stone-200">
-        <span className="font-semibold">Hearth chat</span>
-        <button onClick={() => setOpen(false)} className="text-stone-500 hover:text-stone-900">
+    <aside className="fixed right-0 top-0 z-40 flex h-screen w-[348px] flex-col border-l border-line bg-raised shadow-warm-lg">
+      <header className="flex items-center justify-between border-b border-line px-5 py-4">
+        <div className="flex items-center gap-2">
+          <span className="grid h-7 w-7 place-items-center rounded-md bg-clay text-paper">
+            <Flame className="h-3.5 w-3.5" />
+          </span>
+          <div className="leading-tight">
+            <div className="font-display text-[17px] font-semibold text-ink">
+              Hearth chat
+            </div>
+            <div className="text-[11px] text-ink-faint">Knows your pantry &amp; plan</div>
+          </div>
+        </div>
+        <button
+          onClick={() => setOpen(false)}
+          className="grid h-7 w-7 place-items-center rounded-md text-ink-faint transition hover:bg-paper hover:text-ink"
+          aria-label="Close chat"
+        >
           ✕
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
         {msgs.map((m, i) => (
           <div
             key={i}
             className={
               m.role === "user"
-                ? "bg-stone-900 text-white rounded-lg px-3 py-2 ml-6"
-                : "bg-stone-100 text-stone-900 rounded-lg px-3 py-2 mr-6"
+                ? "ml-8 rounded-2xl rounded-br-sm bg-clay px-3.5 py-2.5 text-sm text-paper"
+                : "mr-8 rounded-2xl rounded-bl-sm border border-line bg-paper px-3.5 py-2.5 text-sm text-ink"
             }
           >
             {m.content}
@@ -66,7 +92,7 @@ export default function ChatSidebar() {
       </div>
 
       <form
-        className="p-3 border-t border-stone-200 flex gap-2"
+        className="flex gap-2 border-t border-line px-4 py-3"
         onSubmit={(e) => {
           e.preventDefault();
           send();
@@ -75,17 +101,20 @@ export default function ChatSidebar() {
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Ask anything..."
-          className="flex-1 rounded-md border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:border-stone-500"
+          placeholder="Ask anything…"
+          className="flex-1 rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-clay focus:outline-none"
         />
-        <button type="submit" className="rounded-md bg-stone-900 text-white px-3 py-2 text-sm">
+        <button
+          type="submit"
+          className="rounded-lg bg-ink px-3.5 py-2 text-sm font-semibold text-paper transition hover:bg-clay"
+        >
           Send
         </button>
       </form>
 
-      <div className="px-3 pb-3 text-xs text-stone-500">
-        🎙️ Voice ("hey Hearth") · 📰 Daily briefing — wired in upcoming sprint.
-      </div>
+      <p className="px-5 pb-3 text-[11px] text-ink-faint">
+        Voice (&ldquo;hey Hearth&rdquo;) &amp; live chat — wired in an upcoming sprint.
+      </p>
     </aside>
   );
 }

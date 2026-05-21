@@ -57,10 +57,7 @@ export default function WastePage() {
   return (
     <div className="min-h-screen px-6 py-10 md:px-12 max-w-3xl mx-auto">
       <header className="mb-8">
-        <a href="/" className="text-sm text-stone-500 hover:text-stone-700">
-          ← Home
-        </a>
-        <h1 className="mt-3 text-3xl font-bold text-stone-900">Waste &amp; savings</h1>
+        <h1 className="text-3xl font-bold text-ink">Waste &amp; savings</h1>
         <p className="mt-1 text-stone-600">
           Tracks what got eaten versus what got tossed. Aim for net positive.
         </p>

@@ -37,10 +37,7 @@ export default function StretchPage() {
   return (
     <div className="min-h-screen px-6 py-10 md:px-12 max-w-5xl mx-auto">
       <header className="mb-8">
-        <a href="/" className="text-sm text-stone-500 hover:text-stone-700">
-          ← Home
-        </a>
-        <h1 className="mt-3 text-3xl font-bold text-stone-900">Stretch the pantry</h1>
+        <h1 className="text-3xl font-bold text-ink">Stretch the pantry</h1>
         <p className="mt-1 text-stone-600">
           What can I make right now? Claude suggests recipes that use what you already have.
         </p>

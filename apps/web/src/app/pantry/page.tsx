@@ -46,10 +46,7 @@ export default function PantryPage() {
   return (
     <div className="min-h-screen px-6 py-10 md:px-12 max-w-4xl mx-auto">
       <header className="mb-10">
-        <a href="/" className="text-sm text-stone-500 hover:text-stone-700">
-          ← Home
-        </a>
-        <h1 className="mt-3 text-3xl font-bold text-stone-900">Pantry</h1>
+        <h1 className="text-3xl font-bold text-ink">Pantry</h1>
         <p className="mt-1 text-stone-600">
           Snap a photo of your shelves. Claude identifies every item.
         </p>

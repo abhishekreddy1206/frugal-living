@@ -91,10 +91,7 @@ export default function PreservationPage() {
   return (
     <div className="min-h-screen px-6 py-10 md:px-12 max-w-4xl mx-auto">
       <header className="mb-8">
-        <a href="/" className="text-sm text-stone-500 hover:text-stone-700">
-          ← Home
-        </a>
-        <h1 className="mt-3 text-3xl font-bold text-stone-900">Preservation</h1>
+        <h1 className="text-3xl font-bold text-ink">Preservation</h1>
         <p className="mt-1 text-stone-600">
           Stretch the pantry by canning, freezing, fermenting, or curing. We follow USDA safety rules.
         </p>
