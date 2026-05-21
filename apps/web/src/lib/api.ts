@@ -1,6 +1,8 @@
 import type {
   BadgeAward,
   Briefing,
+  ContentFeed,
+  ContentItem,
   CookedResponse,
   MealPlan,
   PantryCaptureResponse,
@@ -243,6 +245,25 @@ export function completePreservationJob(
       quantity_out: quantityOut,
       safety_notes: safetyNotes,
     }),
+  });
+}
+
+// ---------- Content / library ----------
+
+export function captureVideo(url: string): Promise<ContentItem> {
+  return api<ContentItem>("/api/v1/content/capture", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
+}
+
+export function getContentFeed(): Promise<ContentFeed> {
+  return api<ContentFeed>("/api/v1/content/feed");
+}
+
+export function deleteContentItem(id: string): Promise<{ status: string }> {
+  return api<{ status: string }>(`/api/v1/content/items/${id}`, {
+    method: "DELETE",
   });
 }
 

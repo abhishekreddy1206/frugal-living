@@ -1,29 +1,85 @@
 """
-YouTube ingestion — pulls latest videos from configured frugal-living channels.
+YouTube content — capture a single video by URL, and (future) channel polling.
 
-Suggested starter channels to seed (`content.sources` rows):
-  - Pro Home Cooks
-  - The Frugal Chef
-  - Frugal Fit Mom
-  - Brian Lagerstrom
-  - Sorted Food
-  - Adam Ragusea
-  - Pasta Grannies
-
-Implementation plan:
-  1. For each active YouTube source, call YouTube Data API v3 `search.list` filtered
-     by channelId + publishedAfter=last_ingested_at.
-  2. For each new video, fetch its transcript (youtube-transcript-api or captions API).
-  3. Upsert ContentItem(provider=youtube, external_id=video_id, body=transcript,
-     duration_seconds, thumbnail_url, published_at).
-  4. Optionally extract recipes from transcript via Claude and store as Recipe rows
-     with imported_from_content_id pointing back.
+`fetch_youtube_metadata` resolves a YouTube URL to title/author/thumbnail using
+the public oEmbed endpoint (no API key needed). Channel polling (`run_ingestion`)
+still requires the YouTube Data API and is left for a later sprint.
 """
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+import httpx
+
 from app.config import settings
+
+_OEMBED_URL = "https://www.youtube.com/oembed"
+
+# Matches the 11-char video id across watch / youtu.be / shorts / embed URLs.
+_VIDEO_ID_PATTERNS = [
+    re.compile(r"youtube\.com/watch\?(?:.*&)?v=([A-Za-z0-9_-]{11})"),
+    re.compile(r"youtu\.be/([A-Za-z0-9_-]{11})"),
+    re.compile(r"youtube\.com/shorts/([A-Za-z0-9_-]{11})"),
+    re.compile(r"youtube\.com/embed/([A-Za-z0-9_-]{11})"),
+]
+
+
+@dataclass
+class YouTubeMetadata:
+    video_id: str
+    url: str  # canonical watch URL
+    title: str
+    author: str | None
+    thumbnail_url: str
+
+
+def parse_video_id(url: str) -> str | None:
+    """Pull the video id out of any common YouTube URL form, or return None."""
+    for pattern in _VIDEO_ID_PATTERNS:
+        match = pattern.search(url)
+        if match:
+            return match.group(1)
+    return None
+
+
+def fetch_youtube_metadata(url: str) -> YouTubeMetadata:
+    """Resolve a YouTube URL to structured metadata via the oEmbed endpoint.
+
+    Raises ValueError if the URL isn't a recognizable YouTube video or the
+    video can't be resolved (private, deleted, geo-blocked).
+    """
+    video_id = parse_video_id(url.strip())
+    if video_id is None:
+        raise ValueError("Not a recognizable YouTube video URL")
+
+    canonical = f"https://www.youtube.com/watch?v={video_id}"
+    try:
+        resp = httpx.get(
+            _OEMBED_URL,
+            params={"url": canonical, "format": "json"},
+            timeout=10.0,
+            follow_redirects=True,
+        )
+    except httpx.HTTPError as e:
+        raise ValueError(f"Could not reach YouTube: {e}") from e
+
+    if resp.status_code != 200:
+        raise ValueError("YouTube could not resolve that video (private or removed?)")
+
+    data = resp.json()
+    return YouTubeMetadata(
+        video_id=video_id,
+        url=canonical,
+        title=data.get("title") or "Untitled video",
+        author=data.get("author_name"),
+        # i.ytimg hqdefault is always available at a predictable 480x360.
+        thumbnail_url=f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+    )
 
 
 def run_ingestion(source_id: str | None = None) -> dict:
-    """Stub. Implement when YOUTUBE_API_KEY is set and ContentSource seeded."""
+    """Stub — channel polling needs the YouTube Data API. Later sprint."""
     if not settings.youtube_api_key:
         return {"status": "skipped", "reason": "YOUTUBE_API_KEY not configured"}
-    raise NotImplementedError("Implement YouTube ingestion")
+    raise NotImplementedError("Implement YouTube channel ingestion")

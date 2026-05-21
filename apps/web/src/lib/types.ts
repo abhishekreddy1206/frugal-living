@@ -235,3 +235,24 @@ export interface PreservationJob {
   safety_notes: string | null;
   notes: string | null;
 }
+
+// ---------- Content / library ----------
+
+export interface ContentItem {
+  id: string;
+  provider: string;
+  external_id: string;
+  title: string;
+  url: string | null;
+  author: string | null;
+  summary: string | null;
+  thumbnail_url: string | null;
+  topic: string;
+  tags: string[];
+  created_at: string;
+}
+
+export interface ContentFeed {
+  items: ContentItem[];
+  count: number;
+}
