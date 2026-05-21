@@ -1,6 +1,13 @@
 """
 Centralized Claude client. Per CLAUDE.md rule #7: every LLM call goes through here.
 
+Transport: calls route through the **Claude Code CLI** (`claude -p`), so no
+ANTHROPIC_API_KEY is needed — the CLI authenticates with the local Claude Code
+subscription. This is a temporary arrangement; to switch back to the Anthropic
+API, restore the SDK client in `get_client()` (the reference body is in its
+docstring). Nothing else in this module changes — `_ClaudeCliClient` is a
+drop-in stand-in for `anthropic.Anthropic`.
+
 Model selection by job (see CLAUDE.md "LLM patterns"):
   MODEL_FAST   — Sonnet 4.6, recipe gen, planning, ranking
   MODEL_SMART  — Opus 4.7, multi-constraint optimization (meal plan)
@@ -11,13 +18,16 @@ Prompts are versioned inline with a comment; move to prompts/<name>_v<N>.md when
 """
 from __future__ import annotations
 
+import base64
 import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 from functools import lru_cache
+from types import SimpleNamespace
 
-from anthropic import Anthropic
-
-from app.config import settings
 from app.schemas.food import (
     AIBriefing,
     AIWeekPlan,
@@ -36,11 +46,158 @@ MODEL_SMART = "claude-opus-4-7"
 MODEL_VISION = "claude-sonnet-4-6"
 MODEL_HAIKU = "claude-haiku-4-5-20251001"
 
+# Wall-clock budget for one `claude -p` invocation. Opus meal-plan calls are the
+# slow path, so keep this generous.
+_CLI_TIMEOUT_S = 600
+
+_MEDIA_SUFFIX = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+
 
 @lru_cache(maxsize=1)
-def get_client() -> Anthropic:
-    """Lazy singleton so importing llm.py doesn't require a real API key."""
-    return Anthropic(api_key=settings.anthropic_api_key)
+def _claude_bin() -> str:
+    """Absolute path to the `claude` CLI, resolved once per process."""
+    return shutil.which("claude") or "claude"
+
+
+def _run_claude_cli(prompt: str, *, model: str, read_dir: str | None = None) -> str:
+    """Invoke `claude -p`, feed the prompt on stdin, return the model's text.
+
+    When `read_dir` is set, the Read tool is enabled and that directory is added
+    to the CLI's allowed paths so a vision prompt can open an image file there.
+    """
+    args = [
+        _claude_bin(),
+        "-p",
+        "--output-format", "json",
+        "--no-session-persistence",
+        "--model", model,
+    ]
+    if read_dir is not None:
+        args += ["--allowedTools", "Read", "--add-dir", read_dir]
+
+    # Strip ANTHROPIC_API_KEY so the CLI uses the Claude Code subscription
+    # rather than trying to authenticate with a (possibly stale) API key.
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+
+    try:
+        proc = subprocess.run(
+            args,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=_CLI_TIMEOUT_S,
+            env=env,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            "claude CLI not found. Install Claude Code, or restore the Anthropic "
+            "SDK client in app/services/llm.py:get_client()."
+        ) from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"claude CLI timed out after {_CLI_TIMEOUT_S}s") from e
+
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()[:500]
+        raise RuntimeError(f"claude CLI exited {proc.returncode}: {detail}")
+
+    stdout = proc.stdout.strip()
+    try:
+        envelope = json.loads(stdout)
+    except json.JSONDecodeError:
+        return stdout  # tolerate a raw-text response
+    if envelope.get("is_error"):
+        raise RuntimeError(
+            f"claude CLI returned an error: {str(envelope.get('result', stdout))[:500]}"
+        )
+    return envelope.get("result", stdout)
+
+
+class _CliMessages:
+    """SDK-compatible shim: mimics `anthropic.Anthropic().messages` over the CLI.
+
+    Accepts the same `create(...)` call shape this module already uses and
+    returns an object exposing `.content[i].type` / `.content[i].text`, so the
+    public functions below are transport-agnostic.
+    """
+
+    def create(
+        self,
+        *,
+        model: str,
+        messages: list,
+        system: str | None = None,
+        max_tokens: int | None = None,  # noqa: ARG002 — CLI has no output cap
+        **_ignored,
+    ) -> SimpleNamespace:
+        text_parts: list[str] = []
+        image: tuple[str, str] | None = None  # (base64_data, media_type)
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, str):
+                text_parts.append(content)
+                continue
+            for block in content or []:
+                if block.get("type") == "text":
+                    text_parts.append(block["text"])
+                elif block.get("type") == "image":
+                    src = block.get("source", {})
+                    image = (src.get("data", ""), src.get("media_type", "image/jpeg"))
+
+        sections: list[str] = []
+        if system:
+            sections.append(system)
+
+        read_dir: str | None = None
+        tmp_path: str | None = None
+        if image is not None:
+            data, media_type = image
+            fd, tmp_path = tempfile.mkstemp(suffix=_MEDIA_SUFFIX.get(media_type, ".jpg"))
+            with os.fdopen(fd, "wb") as f:
+                f.write(base64.b64decode(data))
+            read_dir = os.path.dirname(tmp_path)
+            sections.append(
+                f"An image is saved at {tmp_path}. Use the Read tool to open it, "
+                f"then complete the task below using what you see in it."
+            )
+
+        sections.extend(text_parts)
+        prompt = "\n\n".join(s for s in sections if s)
+
+        try:
+            result = _run_claude_cli(prompt, model=model, read_dir=read_dir)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=result)])
+
+
+class _ClaudeCliClient:
+    """Drop-in stand-in for `anthropic.Anthropic`, backed by the Claude Code CLI."""
+
+    def __init__(self) -> None:
+        self.messages = _CliMessages()
+
+
+@lru_cache(maxsize=1)
+def get_client() -> _ClaudeCliClient:
+    """The Claude transport every function in this module uses.
+
+    Currently the Claude Code CLI — no API key required. To switch back to the
+    Anthropic API, replace the body with:
+
+        from anthropic import Anthropic
+        from app.config import settings
+        return Anthropic(api_key=settings.anthropic_api_key)
+    """
+    return _ClaudeCliClient()
 
 
 # ---------- JSON extraction helper ----------

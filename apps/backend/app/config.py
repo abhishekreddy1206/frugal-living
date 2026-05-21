@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     database_url: str
-    anthropic_api_key: str = "missing"
+    anthropic_api_key: str = "missing"  # unused while llm.py routes through the Claude Code CLI
     jwt_secret: str = "change-me"
     env: str = "local"
     log_level: str = "INFO"

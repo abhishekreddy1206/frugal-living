@@ -333,7 +333,7 @@ def test_generate_weekly_plan_includes_each_date(mock_client):
     reason="Live LLM test only runs with LIVE_LLM=1",
 )
 def test_extract_pantry_from_image_live():
-    """Hits the real Anthropic API. Burns tokens. Skip in CI by default."""
+    """Hits the real Claude Code CLI. Uses your subscription. Skip in CI by default."""
     # 1x1 transparent PNG
     tiny_png = base64.b64encode(
         bytes.fromhex(
