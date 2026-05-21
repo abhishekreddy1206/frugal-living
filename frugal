@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+#
+# frugal — one-command runner for the frugal-living dev stack.
+#
+#   frugal up      start Postgres, apply migrations, launch backend + frontend
+#   frugal down    stop the dev servers and Postgres
+#
+# `frugal up` runs in the foreground and streams both servers' logs.
+# Ctrl+C stops the backend + frontend (Postgres is left running so the next
+# `up` is fast — use `frugal down` for a full teardown).
+
+set -uo pipefail
+
+# --- resolve repo root (= dir of this script, following symlinks) ----------
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+ROOT="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+
+COMPOSE="$ROOT/infra/docker/docker-compose.yml"
+BACKEND="$ROOT/apps/backend"
+WEB="$ROOT/apps/web"
+
+c_blue=$'\033[34m'; c_green=$'\033[32m'; c_dim=$'\033[2m'; c_red=$'\033[31m'; c_reset=$'\033[0m'
+info() { echo "${c_blue}▸${c_reset} $*"; }
+ok()   { echo "${c_green}✓${c_reset} $*"; }
+die()  { echo "${c_red}✗${c_reset} $*" >&2; exit 1; }
+
+require() { command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1"; }
+
+start_postgres() {
+  info "Starting Postgres…"
+  docker compose -f "$COMPOSE" up -d >/dev/null || die "docker compose failed — is Docker running?"
+  info "Waiting for Postgres…"
+  for _ in $(seq 1 30); do
+    if docker compose -f "$COMPOSE" exec -T postgres pg_isready -U frugal -d frugal_living >/dev/null 2>&1; then
+      ok "Postgres ready"
+      return 0
+    fi
+    sleep 1
+  done
+  die "Postgres did not become ready in time"
+}
+
+up() {
+  require docker; require uv; require pnpm
+
+  start_postgres
+
+  info "Syncing backend deps + applying migrations…"
+  ( cd "$BACKEND" && uv sync --quiet && uv run alembic upgrade head ) \
+    || die "backend setup failed"
+  ok "Backend ready"
+
+  if [ ! -d "$WEB/node_modules" ]; then
+    info "Installing frontend deps (first run)…"
+    ( cd "$WEB" && pnpm install ) || die "pnpm install failed"
+  fi
+
+  info "Launching backend (:8000) + frontend (:3000)…"
+  ( cd "$BACKEND" && exec uv run uvicorn app.main:app --port 8000 --reload ) \
+    > >(sed "s/^/${c_dim}[api]${c_reset} /") 2>&1 &
+  api_pid=$!
+  ( cd "$WEB" && exec pnpm dev ) \
+    > >(sed "s/^/${c_dim}[web]${c_reset} /") 2>&1 &
+  web_pid=$!
+
+  stopped=0
+  cleanup() {
+    [ "$stopped" = 1 ] && return
+    stopped=1
+    echo
+    info "Stopping dev servers…"
+    kill "$api_pid" "$web_pid" 2>/dev/null
+    # uvicorn --reload and next spawn children — sweep the ports as a backstop.
+    lsof -ti:8000 -ti:3000 2>/dev/null | xargs kill 2>/dev/null
+    ok "Servers stopped. Postgres is still up — run 'frugal down' for a full teardown."
+  }
+  trap 'cleanup; exit 0' INT TERM
+
+  echo
+  ok "frugal-living is up  →  ${c_green}http://localhost:3000${c_reset}   (API → http://localhost:8000)"
+  echo "${c_dim}  Ctrl+C to stop.${c_reset}"
+  echo
+  wait
+  cleanup
+}
+
+down() {
+  info "Stopping dev servers…"
+  lsof -ti:8000 -ti:3000 2>/dev/null | xargs kill 2>/dev/null
+  pkill -f 'uvicorn app.main:app' 2>/dev/null
+  pkill -f 'next dev' 2>/dev/null
+  info "Stopping Postgres…"
+  docker compose -f "$COMPOSE" down >/dev/null 2>&1
+  ok "Everything stopped."
+}
+
+case "${1:-}" in
+  up)   up ;;
+  down) down ;;
+  *)    echo "usage: frugal {up|down}" >&2; exit 1 ;;
+esac
