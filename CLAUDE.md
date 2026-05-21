@@ -1,6 +1,6 @@
 # CLAUDE.md — frugal-living
 
-> Hi Claude. This is your memory for this project. Read it before doing anything. The deeper data-model rationale lives in `docs/ARCHITECTURE.md` — read that when you're modifying schemas or adding new tiers. Setup spec lives in `cowork_setup_instructions.md`.
+> Hi Claude. This is your memory for this project. Read it before doing anything. The deeper data-model rationale lives in `ARCHITECTURE.md` (repo root) — read that when you're modifying schemas or adding new tiers. Setup spec lives in `frugal_living_setup_instructions.md`.
 
 ---
 
@@ -14,13 +14,26 @@ We are pre-launch. No real users yet. **Speed and clean foundations > polish.** 
 
 ## 🚦 Current state
 
-- Project scaffolded.
-- Tier A data models written (`apps/backend/app/models/food.py`).
-- API routers stubbed (`apps/backend/app/routers/food.py`) — they return placeholders.
-- LLM service has stub functions (`apps/backend/app/services/llm.py`) — nothing wired to Claude yet.
-- Frontend is a placeholder home page.
+**Tier A MVP is built and runs.** All eight planned sprints are merged; the backend boots against Postgres, all migrations apply, and the test suite passes (134 tests). Frontend typechecks clean.
 
-**Next implementation target:** Sprint 1 — Pantry Capture (photo → inventory).
+What's fully implemented:
+- **`food` (Tier A)** — pantry photo capture, recipe stretcher, weekly meal plan, shopping list from plan, waste tracking + savings rollup, preservation coach (with botulism safeguards). All wired to Claude through `services/llm.py`.
+- **`ai`** — daily briefings (Sprint 7). Conversations + voice are still stubs.
+- **`tracking`** — streaks + badges (Sprint 8). Dashboard / savings / budgets are still stubs.
+- **`content`** — YouTube link capture + feed (`POST /content/capture`, `GET /content/feed`, `DELETE /content/items/{id}`). Resolves metadata via YouTube oEmbed (no API key). Channel/RSS/Reddit polling still stubbed.
+- **Frontend** — a warm editorial design system (Fraunces + Hanken Grotesk, app shell with sidebar nav). Pages for all six food features (`/pantry`, `/stretch`, `/plan`, `/shopping`, `/preservation`, `/waste`), the `/watch` library, and a home dashboard.
+- **Infra** — dev user/household, starter ingredients, and badge definitions are seeded on startup (`app/auth.py`). Two migrations applied (`0001` schemas, `0002` all tables). `./frugal up` runs the whole stack.
+
+What's still stubbed (endpoints return placeholder JSON with a `todo` key):
+- `food`: `/pantry/receipt`, `/pantry/barcode` (Sprint 1.5).
+- `ai`: `/conversations/*`, `/voice/*`.
+- `tracking`: `/dashboard`, `/savings`, `/budgets`.
+- `content`: channel ingestion (`/sources`, `/ingest/run`); `services/{reddit,blog_importer}.py` are placeholders.
+- `llm.extract_receipt` and `llm.rank_content_for_household` raise `NotImplementedError`.
+
+**To run:** `./frugal up` (starts Postgres, applies migrations, launches backend + frontend). Needs Docker, `uv`, `pnpm`, and the `claude` CLI installed and logged in — the AI layer uses the Claude Code CLI, so no API key is required. `apps/backend/.env` only needs `DATABASE_URL`.
+
+**Next implementation target:** Sprint 1.5 (receipt + barcode capture) or the `tracking` dashboard rollup.
 
 ---
 
@@ -52,15 +65,21 @@ Each tier = its own Postgres schema, its own router prefix (`/api/v1/food`, `/ap
 
 ---
 
-## 🧭 Tier A MVP — three features, in order
+## 🧭 Tier A — sprint ledger
 
-| Sprint | Feature | Endpoint | LLM call |
-|---|---|---|---|
-| 1 | **Pantry capture** | `POST /api/v1/food/pantry/capture` | `extract_pantry_from_image` (vision) |
-| 2 | **Recipe stretcher** | `GET /api/v1/food/recipes/stretch` | `stretch_recipes_for_pantry` |
-| 3 | **Weekly meal plan** | `POST /api/v1/food/meal-plans/generate` | `generate_weekly_plan` |
+| Sprint | Feature | Endpoint | LLM call | Status |
+|---|---|---|---|---|
+| 1 | **Pantry capture** | `POST /api/v1/food/pantry/capture` | `extract_pantry_from_image` (vision) | ✅ Done |
+| 2 | **Recipe stretcher** | `GET /api/v1/food/recipes/stretch` | `stretch_recipes_for_pantry` | ✅ Done |
+| 3 | **Weekly meal plan** | `POST /api/v1/food/meal-plans/generate` | `generate_weekly_plan` (Opus) | ✅ Done |
+| 4 | **Shopping list** | `POST /api/v1/food/shopping-lists/from-plan` | — | ✅ Done |
+| 5 | **Waste + savings** | `POST /api/v1/food/waste`, `GET /waste/savings` | — | ✅ Done |
+| 6 | **Preservation coach** | `POST /api/v1/food/preservation/advice` | `preservation_advice` | ✅ Done |
+| 7 | **Daily briefing** | `GET /api/v1/ai/briefings/today` | `generate_briefing` | ✅ Done |
+| 8 | **Streaks + badges** | `GET /api/v1/tracking/streaks`, `/badges` | — | ✅ Done |
+| 1.5 | Receipt + barcode capture | `POST /api/v1/food/pantry/{receipt,barcode}` | `extract_receipt` | ⛔ Stub |
 
-Everything else in Tier A (preservation, shopping, waste tracking, multi-user) ships *after* these three feel solid. Don't get distracted.
+The original MVP was sprints 1–3; sprints 4–8 followed. Receipt/barcode capture (1.5) and the cross-cutting `content` module remain.
 
 ---
 
@@ -88,7 +107,7 @@ These encode design decisions that compound. Don't break them.
 
 - **Backend:** Python 3.11+ / FastAPI / SQLAlchemy 2.0 / Alembic / PostgreSQL 16
 - **Frontend:** Next.js 14 (App Router) / TypeScript / Tailwind
-- **AI:** Claude API. `claude-sonnet-4-6` for fast paths and vision; `claude-opus-4-7` for hard reasoning (multi-constraint meal-plan optimization). Both via the official Python SDK.
+- **AI:** Claude. `claude-sonnet-4-6` for fast paths and vision; `claude-opus-4-7` for hard reasoning (multi-constraint meal-plan optimization). **Currently routed through the Claude Code CLI (`claude -p`)** — no `ANTHROPIC_API_KEY` needed; the CLI authenticates with the local Claude Code subscription. This is temporary: switching back to the official Python SDK is a one-function change in `app/services/llm.py:get_client()` (the reference body is in its docstring). Everything else in `llm.py` is transport-agnostic.
 - **Local DB:** Postgres via Docker Compose. **Do not switch to SQLite** — we use JSONB and Postgres array types pervasively.
 - **Package managers:** `uv` (Python), `pnpm` (JS).
 - **Auth:** Stubbed. Hardcoded dev user. Plug in Clerk or Auth.js before any real users.
@@ -105,18 +124,35 @@ frugal-living/
 │   │   │   ├── config.py            # pydantic-settings, reads .env
 │   │   │   ├── db.py                # SQLAlchemy engine, session, Base
 │   │   │   ├── main.py              # FastAPI app + router mounts
+│   │   │   ├── auth.py              # dev-mode auth stub + fixture seeding
 │   │   │   ├── models/
 │   │   │   │   ├── __init__.py      # imports all model modules
-│   │   │   │   ├── core.py          # users, households, subs, events
-│   │   │   │   └── food.py          # Tier A models (pantry, recipes, ...)
+│   │   │   │   ├── core.py          # users, households, subs, events, audit
+│   │   │   │   ├── food.py          # Tier A: pantry, recipes, meals, ...
+│   │   │   │   ├── ai.py            # conversations, voice, briefings
+│   │   │   │   ├── content.py       # content sources, items, bookmarks
+│   │   │   │   └── tracking.py      # budgets, savings, streaks, badges
 │   │   │   ├── routers/
 │   │   │   │   ├── health.py        # /healthz
-│   │   │   │   └── food.py          # /api/v1/food/*
+│   │   │   │   ├── food.py          # /api/v1/food/*
+│   │   │   │   ├── ai.py            # /api/v1/ai/*
+│   │   │   │   ├── content.py       # /api/v1/content/*  (stubs)
+│   │   │   │   └── tracking.py      # /api/v1/tracking/*
+│   │   │   ├── schemas/             # Pydantic request/response models
+│   │   │   │   ├── food.py
+│   │   │   │   ├── content.py
+│   │   │   │   └── tracking.py
 │   │   │   └── services/
-│   │   │       └── llm.py           # ALL Claude calls
+│   │   │       ├── llm.py           # ALL Claude calls (Claude Code CLI transport)
+│   │   │       ├── events.py        # emit_event helper
+│   │   │       ├── ingredients.py   # ingredient resolution + seeding
+│   │   │       ├── pantry.py recipes.py meal_plans.py shopping.py
+│   │   │       ├── waste.py preservation.py briefings.py streaks.py
+│   │   │       ├── youtube.py       # YouTube oEmbed metadata fetch
+│   │   │       └── reddit.py blog_importer.py voice.py  # stubs
 │   │   ├── alembic/
 │   │   │   ├── env.py
-│   │   │   └── versions/
+│   │   │   └── versions/            # 0001_init_schemas, 0002_create_all_tables
 │   │   ├── tests/
 │   │   ├── alembic.ini
 │   │   ├── pyproject.toml
@@ -134,6 +170,7 @@ frugal-living/
 ├── docs/
 │   └── ARCHITECTURE.md              # Read for deep data-model context
 ├── packages/shared-types/           # (future) shared TS types
+├── frugal                           # one-command dev runner (./frugal up|down)
 ├── CLAUDE.md                        # This file
 ├── README.md
 └── .gitignore
@@ -144,12 +181,16 @@ frugal-living/
 ## ⚡ Common commands
 
 ```bash
-# --- One-time setup ---
+# --- The whole stack, one command ---
+./frugal up      # Postgres + migrations + backend (:8000) + frontend (:3000)
+./frugal down    # stop the dev servers and Postgres
+
+# --- One-time setup (./frugal up handles all of this too) ---
 docker compose -f infra/docker/docker-compose.yml up -d
 cd apps/backend && uv sync && uv run alembic upgrade head
 cd ../web && pnpm install
 
-# --- Daily development ---
+# --- Or run the pieces by hand ---
 # Terminal 1: Postgres (if not already running)
 docker compose -f infra/docker/docker-compose.yml up -d
 
@@ -218,6 +259,8 @@ pnpm typecheck
 
 The LLM service is the heart of the product. Read carefully.
 
+**Transport.** `get_client()` returns a CLI-backed shim (`_ClaudeCliClient`) that spawns `claude -p` and exposes the same `.messages.create(...)` surface as the Anthropic SDK. Vision calls write the image to a temp file and let the CLI's Read tool open it. The public functions never see the transport — they call `get_client().messages.create(...)` exactly as before. To revert to the SDK, only `get_client()` changes.
+
 **Model selection** (defined in `app/services/llm.py`):
 - `MODEL_FAST` = `claude-sonnet-4-6`. Use for: recipe generation, plan generation, pantry image extraction, anything that's well-scoped and high-volume.
 - `MODEL_SMART` = `claude-opus-4-7`. Use for: hard reasoning, multi-constraint optimization (e.g. plan a week of meals balancing pantry + budget + preferences + nutrition), eval generation. Higher cost — use sparingly.
@@ -250,9 +293,9 @@ The LLM service is the heart of the product. Read carefully.
 
 ## 📚 When you're stuck or need context
 
-- **Data model deep dive:** `docs/ARCHITECTURE.md`
-- **Setup spec / what was already built:** `cowork_setup_instructions.md`
-- **Tier expansion playbook:** `docs/ARCHITECTURE.md` → "Adding a new tier"
+- **Data model deep dive:** `ARCHITECTURE.md` (repo root) — the comprehensive one
+- **Setup spec / what was already built:** `frugal_living_setup_instructions.md`
+- **Tier expansion playbook:** `ARCHITECTURE.md` → "Adding a new tier"
 - **Anthropic SDK reference:** https://docs.claude.com/en/api/overview
 - **FastAPI:** https://fastapi.tiangolo.com/
 - **SQLAlchemy 2.0:** https://docs.sqlalchemy.org/en/20/

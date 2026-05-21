@@ -211,24 +211,29 @@ Add specialized indexes (e.g. `(event_type, created_at)` for analytics queries) 
 
 When `core.events` exceeds ~100M rows or becomes a write hot spot, partition by `created_at` monthly. Postgres native partitioning. Migration written when needed.
 
-### 5.5 Event type catalog (alphabetical)
+### 5.5 Event type catalog
 
-Maintained list of every event type defined in the system. Update as you add new ones.
+Maintained list of every event type **currently emitted** by the system. Update as you add new ones.
 
 **Tier A — food**
 - `food.meal.cooked`
 - `food.meal.skipped`
 - `food.meal_plan.created`
 - `food.pantry_item.added`
-- `food.pantry_item.consumed`
-- `food.pantry_item.expired`
 - `food.pantry_item.wasted`
-- `food.preservation_job.completed`
 - `food.preservation_job.started`
+- `food.preservation_job.completed`
 - `food.recipe.generated`
+- `food.shopping_list.generated`
 - `food.shopping_item.purchased`
 
-(Future tiers' types added here as introduced.)
+**Cross-cutting**
+- `ai.briefing.generated`
+- `content.item.captured`
+- `tracking.badge.awarded`
+
+Reserved by name but not yet emitted anywhere: `food.pantry_item.consumed`,
+`food.pantry_item.expired`. (Future tiers' types added here as introduced.)
 
 ---
 
@@ -380,7 +385,7 @@ emit_event(
 )
 ```
 
-(`emit_event` is a helper to be added in `app/services/events.py` — write it the first time you need it.)
+(`emit_event` is the helper in `app/services/events.py`.)
 
 ### Step 8 — LLM functions
 
