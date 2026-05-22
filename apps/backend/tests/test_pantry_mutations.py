@@ -70,3 +70,21 @@ def test_update_item_changes_fields_and_emits(db):
         .all()
     )
     assert len(events) == 1
+
+
+def test_update_item_no_op_emits_no_event(db):
+    household, user = _ctx(db)
+    item = add_item(db, household=household, user=user, raw_name="salt")
+    update_item(db, household=household, user=user, pantry_item_id=item.id)
+    events = (
+        db.query(Event)
+        .filter(Event.event_type == "food.pantry_item.updated", Event.entity_id == item.id)
+        .all()
+    )
+    assert events == []
+
+
+def test_update_item_rejects_unknown_id(db):
+    household, user = _ctx(db)
+    with pytest.raises(PantryItemNotFound):
+        update_item(db, household=household, user=user, pantry_item_id=uuid.uuid4())

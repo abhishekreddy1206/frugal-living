@@ -267,6 +267,8 @@ def update_item(
     if expires_at is not None:
         item.expires_at = expires_at
         changed["expires_at"] = expires_at.isoformat()
+    if not changed:
+        return item  # no-op update — don't emit a spurious event
     db.flush()
     emit_event(
         db,
