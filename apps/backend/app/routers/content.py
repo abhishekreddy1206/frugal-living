@@ -12,8 +12,15 @@ from sqlalchemy.orm import Session
 from app.auth import CurrentHousehold, CurrentUser
 from app.db import get_db
 from app.models.content import ContentItem
-from app.schemas.content import CaptureRequest, ContentItemRead, FeedResponse
-from app.services.content import enrich_content_item
+from app.schemas.content import (
+    CaptureRequest,
+    ContentItemRead,
+    EnrichResponse,
+    FeedResponse,
+    RecipeSuggestion,
+    RecipeSuggestionsResponse,
+)
+from app.services.content import enrich_content_item, enrich_pending, rank_videos_for_pantry
 from app.services.events import emit_event
 from app.services.youtube import parse_video_id, resolve_video_metadata
 
@@ -46,6 +53,49 @@ def feed(
     return FeedResponse(
         items=[ContentItemRead.model_validate(r) for r in rows],
         count=len(rows),
+    )
+
+
+@router.get("/recipe-suggestions", response_model=RecipeSuggestionsResponse)
+def recipe_suggestions(
+    household: CurrentHousehold,
+    db: Annotated[Session, Depends(get_db)],
+    limit: int = Query(12, ge=1, le=50, description="Max suggestions to return."),
+) -> RecipeSuggestionsResponse:
+    """Saved cooking videos ranked by how well they fit the household's pantry."""
+    ranked, pantry_size = rank_videos_for_pantry(db, household=household, limit=limit)
+    return RecipeSuggestionsResponse(
+        suggestions=[
+            RecipeSuggestion(
+                id=r.item.id,
+                provider=r.item.provider,
+                external_id=r.item.external_id,
+                title=r.item.title,
+                url=r.item.url,
+                author=r.item.author,
+                thumbnail_url=r.item.thumbnail_url,
+                duration_seconds=r.item.duration_seconds,
+                match_score=r.match_score,
+                matched_ingredients=r.matched_ingredients,
+                match_reason=r.match_reason,
+            )
+            for r in ranked
+        ],
+        pantry_size=pantry_size,
+    )
+
+
+@router.post("/enrich", response_model=EnrichResponse)
+def enrich_pending_endpoint(
+    db: Annotated[Session, Depends(get_db)],
+    limit: int = Query(20, ge=1, le=100, description="Max items to enrich this call."),
+) -> EnrichResponse:
+    """Backfill enrichment for videos saved before this feature. Bounded by `limit`;
+    re-call while `remaining > 0`."""
+    result = enrich_pending(db, limit=limit)
+    db.commit()
+    return EnrichResponse(
+        enriched=result.enriched, failed=result.failed, remaining=result.remaining
     )
 
 
