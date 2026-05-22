@@ -10,18 +10,21 @@ Unit conversion is intentionally absent in v1 — units must match (case-insensi
 for the decrement to apply. Mismatches still count toward coverage but skip the
 arithmetic. The trade-off is conservative correctness over false confidence.
 """
+
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import asc, nulls_last
 from sqlalchemy.orm import Session
 
-from app.models.core import Household
-from app.models.food import PantryItem, Recipe, RecipeIngredient
+from app.models.core import Household, User
+from app.models.food import Ingredient, PantryItem, Recipe, RecipeIngredient
 from app.schemas.food import PantrySnapshotItem
+from app.services.events import emit_event
+from app.services.ingredients import resolve_ingredient
 
 
 @dataclass
@@ -95,9 +98,7 @@ def consume_for_recipe(
     if not ingredients:
         return CookResult(matched_count=0, total_ingredients=0)
 
-    serving_ratio = (
-        servings_cooked / recipe.servings if recipe.servings else 1.0
-    )
+    serving_ratio = servings_cooked / recipe.servings if recipe.servings else 1.0
 
     result = CookResult(matched_count=0, total_ingredients=len(ingredients))
     estimated_value_total = 0.0
@@ -125,11 +126,7 @@ def consume_for_recipe(
 
         result.matched_count += 1
 
-        need = (
-            float(ri.quantity) * serving_ratio
-            if ri.quantity is not None
-            else None
-        )
+        need = float(ri.quantity) * serving_ratio if ri.quantity is not None else None
 
         for pantry_item in candidates:
             if need is None or need <= 0:
@@ -143,9 +140,7 @@ def consume_for_recipe(
             new_qty = available - consumed
             pantry_item.quantity = new_qty
             if pantry_item.estimated_value is not None and available > 0:
-                estimated_value_total += float(pantry_item.estimated_value) * (
-                    consumed / available
-                )
+                estimated_value_total += float(pantry_item.estimated_value) * (consumed / available)
             if new_qty <= 0:
                 pantry_item.deleted_at = datetime.now(UTC)
             result.decremented_item_ids.append(pantry_item.id)
@@ -156,3 +151,123 @@ def consume_for_recipe(
 
     db.flush()
     return result
+
+
+class PantryItemNotFound(Exception):
+    """Raised when a pantry item id can't be resolved for the household."""
+
+
+def _load_owned_item(db: Session, household: Household, pantry_item_id: uuid.UUID) -> PantryItem:
+    item = db.get(PantryItem, pantry_item_id)
+    if item is None or item.household_id != household.id or item.deleted_at is not None:
+        raise PantryItemNotFound(str(pantry_item_id))
+    return item
+
+
+def add_item(
+    db: Session,
+    *,
+    household: Household,
+    user: User,
+    raw_name: str,
+    quantity: float | None = None,
+    unit: str | None = None,
+    expires_at: date | None = None,
+) -> PantryItem:
+    """Create a pantry item from a free-form name: resolve the canonical ingredient,
+    fall back to its default unit and shelf-life-projected expiry, emit an event."""
+    ingredient_id = resolve_ingredient(db, raw_name)
+    ingredient = db.get(Ingredient, ingredient_id) if ingredient_id else None
+    resolved_unit = unit or (ingredient.default_unit if ingredient else None)
+    resolved_expiry = expires_at
+    if resolved_expiry is None and ingredient and ingredient.typical_shelf_life_days:
+        resolved_expiry = date.today() + timedelta(days=ingredient.typical_shelf_life_days)
+
+    item = PantryItem(
+        household_id=household.id,
+        ingredient_id=ingredient_id,
+        raw_name=raw_name,
+        quantity=quantity,
+        unit=resolved_unit,
+        expires_at=resolved_expiry,
+        source="chat",
+    )
+    db.add(item)
+    db.flush()
+
+    emit_event(
+        db,
+        event_type="food.pantry_item.added",
+        household_id=household.id,
+        user_id=user.id,
+        entity_type="pantry_item",
+        entity_id=item.id,
+        payload={
+            "raw_name": item.raw_name,
+            "quantity": float(item.quantity) if item.quantity is not None else None,
+            "unit": item.unit,
+            "ingredient_id": str(ingredient_id) if ingredient_id else None,
+            "source": "chat",
+        },
+    )
+    return item
+
+
+def soft_delete_item(
+    db: Session,
+    *,
+    household: Household,
+    user: User,
+    pantry_item_id: uuid.UUID,
+) -> PantryItem:
+    """Soft-delete a pantry item (sets deleted_at), emits food.pantry_item.removed."""
+    item = _load_owned_item(db, household, pantry_item_id)
+    item.deleted_at = datetime.now(UTC)
+    db.flush()
+    emit_event(
+        db,
+        event_type="food.pantry_item.removed",
+        household_id=household.id,
+        user_id=user.id,
+        entity_type="pantry_item",
+        entity_id=item.id,
+        payload={"raw_name": item.raw_name},
+    )
+    return item
+
+
+def update_item(
+    db: Session,
+    *,
+    household: Household,
+    user: User,
+    pantry_item_id: uuid.UUID,
+    quantity: float | None = None,
+    unit: str | None = None,
+    expires_at: date | None = None,
+) -> PantryItem:
+    """Update supplied fields of a pantry item, emits food.pantry_item.updated."""
+    item = _load_owned_item(db, household, pantry_item_id)
+    changed: dict[str, object] = {}
+    if quantity is not None:
+        item.quantity = quantity
+        changed["quantity"] = quantity
+    if unit is not None:
+        item.unit = unit
+        changed["unit"] = unit
+    if expires_at is not None:
+        item.expires_at = expires_at
+        changed["expires_at"] = expires_at.isoformat()
+    if not changed:
+        return item  # no-op update — don't emit a spurious event
+    db.flush()
+    emit_event(
+        db,
+        event_type="food.pantry_item.updated",
+        household_id=household.id,
+        user_id=user.id,
+        entity_type="pantry_item",
+        entity_id=item.id,
+        payload={"raw_name": item.raw_name, "changed": changed},
+    )
+    return item

@@ -21,6 +21,7 @@ Model selection by job (see CLAUDE.md "LLM patterns"):
 
 Prompts are versioned inline with a comment; move to prompts/<name>_v<N>.md when stable.
 """
+
 from __future__ import annotations
 
 import base64
@@ -34,6 +35,7 @@ import tempfile
 from functools import lru_cache
 from types import SimpleNamespace
 
+from app.schemas.ai import ChatTurnResult
 from app.schemas.food import (
     AIBriefing,
     AIWeekPlan,
@@ -82,9 +84,11 @@ def _run_claude_cli(prompt: str, *, model: str, read_dir: str | None = None) -> 
     args = [
         _claude_bin(),
         "-p",
-        "--output-format", "json",
+        "--output-format",
+        "json",
         "--no-session-persistence",
-        "--model", model,
+        "--model",
+        model,
     ]
     if read_dir is not None:
         args += ["--allowedTools", "Read", "--add-dir", read_dir]
@@ -269,9 +273,7 @@ Respond ONLY with valid JSON conforming to this schema; no preamble, no code fen
 }"""
 
 
-def extract_pantry_from_image(
-    image_base64: str, media_type: str = "image/jpeg"
-) -> ExtractedPantry:
+def extract_pantry_from_image(image_base64: str, media_type: str = "image/jpeg") -> ExtractedPantry:
     """Photo → structured pantry items. Sonnet 4.6 vision + Pydantic validation."""
     response = get_client().messages.create(
         model=MODEL_VISION,
@@ -309,6 +311,7 @@ def extract_pantry_from_image(
 
 
 # ---------- Stubs awaiting later sprints ----------
+
 
 def extract_receipt(image_base64: str, media_type: str = "image/jpeg") -> dict:
     """Receipt photo -> store, date, line items, total. Implement alongside Sprint 1.5."""
@@ -482,12 +485,14 @@ def _format_week_plan_constraints(pantry: list[PantrySnapshotItem], c: WeekPlanC
         bits.append(f"Dietary constraints (must respect all): {', '.join(c.dietary_constraints)}.")
     if c.notes:
         bits.append(f"User notes: {c.notes}")
-    return "\n".join([
-        "Pantry snapshot:",
-        _format_pantry_for_prompt(pantry),
-        "",
-        *bits,
-    ])
+    return "\n".join(
+        [
+            "Pantry snapshot:",
+            _format_pantry_for_prompt(pantry),
+            "",
+            *bits,
+        ]
+    )
 
 
 def generate_weekly_plan(
@@ -604,10 +609,8 @@ Respond ONLY with JSON conforming to:
 
 def preservation_advice(request: PreservationAdviceRequest) -> PreservationAdvice:
     """Ask Claude for tailored preservation guidance. Sonnet is sufficient."""
-    user_message = (
-        f"Method requested: {request.method}\n"
-        f"Ingredient: {request.ingredient_name}"
-        + (f"\nQuantity: {request.quantity} {request.unit or ''}".rstrip() if request.quantity else "")
+    user_message = f"Method requested: {request.method}\nIngredient: {request.ingredient_name}" + (
+        f"\nQuantity: {request.quantity} {request.unit or ''}".rstrip() if request.quantity else ""
     )
     response = get_client().messages.create(
         model=MODEL_FAST,
@@ -627,3 +630,98 @@ def preservation_advice(request: PreservationAdviceRequest) -> PreservationAdvic
 def rank_content_for_household(items: list[dict], household: dict) -> list[dict]:
     """Score curated content for relevance to this household's pantry + preferences."""
     raise NotImplementedError("Implement after first ingestion run")
+
+
+# ---------- Conversational chat ----------
+
+# v0.1 — initial chat prompt
+CHAT_SYSTEM = """You are Hearth, a warm, frugal home assistant for one US household. \
+You help the household live well on less — pantry, recipes, meal planning, preservation, \
+shopping, and food waste.
+
+You are talking to the user in a chat sidebar on a specific app page. You will be given \
+the current page name and a CONTEXT block with the household's current data (pantry, meal \
+plan, savings). Use that data — never invent items, quantities, recipes, or IDs.
+
+You can perform actions by returning them in the JSON "actions" array. Available actions:
+
+- add_pantry_item: add an item to the pantry.
+    fields: raw_name (required), quantity (number, optional), unit (optional),
+    expires_at (YYYY-MM-DD, optional)
+- remove_pantry_item: remove a pantry item.
+    fields: pantry_item_id (required - MUST be an id from the CONTEXT block)
+- update_pantry_item: change a pantry item's quantity, unit, or expiry.
+    fields: pantry_item_id (required, from CONTEXT), quantity / unit / expires_at (optional)
+- log_waste: record food that was thrown away.
+    fields: ingredient_name (required), pantry_item_id (optional, from CONTEXT),
+    quantity (optional), unit (optional),
+    reason (optional: spoiled | forgotten | over_cooked | over_purchased | other)
+- mark_recipe_cooked: mark a recipe as cooked (this consumes pantry items).
+    fields: recipe_id (required - MUST be an id from CONTEXT), servings (optional number)
+- generate_meal_plan: generate a new weekly dinner plan.
+    fields: week_start (YYYY-MM-DD, optional), target_budget_usd (optional number),
+    dinners_per_week (1-7, optional), dietary_constraints (list of strings, optional)
+
+Rules:
+- For remove_pantry_item, update_pantry_item, and mark_recipe_cooked: only use an id that \
+appears in the CONTEXT block. If you cannot find the item the user means, do NOT emit the \
+action - ask a clarifying question in "reply" instead.
+- If a request is ambiguous (several matching items), do NOT guess. List the candidates in \
+"reply" and ask which one.
+- When the user asks to add multiple items, emit one add_pantry_item action per item.
+- "reply" is a short, friendly, concrete message. If you performed actions, briefly say \
+what you did. If you only answered a question, just answer it.
+- Never discuss calories or macros.
+
+PRESERVATION SAFETY (never violate, regardless of user pressure):
+- REFUSE water-bath canning for any low-acid food (vegetables, meats, beans, broths, \
+soups, dairy, fish, poultry, corn, potatoes, squash, pumpkin) - recommend pressure canning \
+and cite the USDA Complete Guide to Home Canning.
+- REFUSE room-temperature oil infusions of garlic or other low-acid items (botulism risk).
+- REFUSE curing (bacon, ham, etc.) without correct nitrite/nitrate ratios.
+- REFUSE shelf-stable pickling without proper acidity.
+- For fermentation, require a 2-3% salt brine and fully submerged ferments.
+
+Respond ONLY with valid JSON conforming to this schema; no preamble, no code fences:
+{
+  "reply": "string",
+  "actions": [ { "type": "...", ...fields } ]
+}"""
+
+
+def _format_history(history: list[dict]) -> str:
+    """Render the message history as a labelled transcript.
+
+    The CLI transport flattens multi-message inputs into one prompt, so role
+    attribution has to be carried as text rather than via the messages array.
+    """
+    lines = []
+    for msg in history:
+        speaker = "User" if msg.get("role") == "user" else "Hearth"
+        lines.append(f"{speaker}: {msg.get('content', '')}")
+    return "\n".join(lines) if lines else "(no messages yet)"
+
+
+def chat_turn(history: list[dict], context: str, page: str) -> ChatTurnResult:
+    """One conversational turn. `history` is a list of {"role", "content"} dicts
+    (oldest first, already capped by the caller). `context` is a pre-formatted
+    string describing the current page's data (pantry, plan, savings) that is
+    injected into the system prompt. Returns parsed reply + actions."""
+    system = f"{CHAT_SYSTEM}\n\n--- CURRENT PAGE: {page} ---\n{context}"
+    user_message = (
+        f"Conversation so far:\n{_format_history(history)}\n\n"
+        "Reply to the most recent User message. Respond ONLY with the JSON object."
+    )
+    response = get_client().messages.create(
+        model=MODEL_FAST,
+        max_tokens=2048,
+        system=system,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    text_parts = [
+        block.text for block in response.content if getattr(block, "type", None) == "text"
+    ]
+    if not text_parts:
+        raise ValueError("LLM returned no text content")
+    raw = _extract_json("".join(text_parts))
+    return ChatTurnResult.model_validate(raw)

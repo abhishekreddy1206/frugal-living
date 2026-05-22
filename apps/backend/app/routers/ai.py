@@ -1,46 +1,83 @@
 """AI module — Claude conversations (chat sidebar), voice, daily briefings."""
+
 from __future__ import annotations
 
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import asc
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentHousehold, CurrentUser
 from app.db import get_db
-from app.models.ai import Briefing
+from app.models.ai import Briefing, Conversation, Message
+from app.schemas.ai import (
+    ChatMessageRequest,
+    ChatTurnResponse,
+    ConversationOpenRequest,
+    ConversationOpenResponse,
+    MessageRead,
+)
 from app.schemas.food import BriefingRead
 from app.services.briefings import (
     get_or_generate_today,
     get_today,
     mark_read,
 )
+from app.services.chat import get_or_create_conversation, run_chat_turn
 
 router = APIRouter()
 
 
-# ---------- Conversations (chat sidebar) — stubs ----------
+# ---------- Conversations (chat sidebar) ----------
+
+
+@router.post("/conversations", response_model=ConversationOpenResponse)
+def open_conversation(
+    request: ConversationOpenRequest,
+    household: CurrentHousehold,
+    db: Annotated[Session, Depends(get_db)],
+) -> ConversationOpenResponse:
+    """Get-or-create the conversation for a page and return its message history."""
+    conv = get_or_create_conversation(db, household=household, page=request.page)
+    messages = (
+        db.query(Message)
+        .filter(Message.conversation_id == conv.id)
+        .order_by(asc(Message.created_at))
+        .all()
+    )
+    db.commit()
+    return ConversationOpenResponse(
+        conversation_id=conv.id,
+        page=conv.metadata_.get("page", "general"),
+        messages=[MessageRead.model_validate(m) for m in messages],
+    )
+
+
+@router.post("/conversations/{conv_id}/messages", response_model=ChatTurnResponse)
+def post_message(
+    conv_id: uuid.UUID,
+    request: ChatMessageRequest,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> ChatTurnResponse:
+    """Run one chat turn: persist the message, call the assistant, execute actions."""
+    conv = db.get(Conversation, conv_id)
+    if conv is None or conv.household_id != household.id or conv.deleted_at is not None:
+        raise HTTPException(404, "conversation not found")
+    response = run_chat_turn(
+        db, household=household, user=user, conversation=conv, content=request.content
+    )
+    db.commit()
+    return response
 
 
 @router.get("/conversations")
 def list_conversations(db: Annotated[Session, Depends(get_db)]):
+    """Conversation-list view. Stub — no thread-list UI in v1."""
     return {"conversations": [], "todo": "List recent Conversation rows for household"}
-
-
-@router.post("/conversations")
-def create_conversation(db: Annotated[Session, Depends(get_db)]):
-    return {"conversation": None, "todo": "Create Conversation, return id"}
-
-
-@router.get("/conversations/{conv_id}/messages")
-def list_messages(conv_id: str, db: Annotated[Session, Depends(get_db)]):
-    return {"messages": [], "todo": "Return Message rows ordered by created_at"}
-
-
-@router.post("/conversations/{conv_id}/messages")
-def post_message(conv_id: str, db: Annotated[Session, Depends(get_db)]):
-    return {"reply": None, "todo": "Wire to Claude with conversation history + tools"}
 
 
 # ---------- Voice — stubs ----------
@@ -66,9 +103,7 @@ def todays_briefing(
     db: Annotated[Session, Depends(get_db)],
 ) -> BriefingRead:
     """Return today's briefing, generating it on demand if missing."""
-    briefing = get_or_generate_today(
-        db, household=household, user_id=user.id, force=False
-    )
+    briefing = get_or_generate_today(db, household=household, user_id=user.id, force=False)
     db.commit()
     return BriefingRead.model_validate(briefing)
 
@@ -80,9 +115,7 @@ def regenerate_briefing(
     db: Annotated[Session, Depends(get_db)],
 ) -> BriefingRead:
     """Force a fresh briefing — soft-deletes the existing today and regenerates."""
-    briefing = get_or_generate_today(
-        db, household=household, user_id=user.id, force=True
-    )
+    briefing = get_or_generate_today(db, household=household, user_id=user.id, force=True)
     db.commit()
     return BriefingRead.model_validate(briefing)
 

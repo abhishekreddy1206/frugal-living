@@ -90,7 +90,10 @@ tracking/                Cross-cutting
 5. **Audit through `core.audit_log`.** WHO did WHAT.
 6. **Activity through `core.events`.** Polymorphic: `entity_type + entity_id`.
    Used by streaks, undo, analytics. New tiers emit new event types without
-   touching core.
+   touching core. Known food-tier event types: `food.receipt.parsed`,
+   `food.pantry_item.added`, `food.pantry_item.removed` (chat-driven removal),
+   `food.pantry_item.updated` (chat-driven update), `food.pantry_item.wasted`,
+   `food.meal.cooked`.
 
 ## How tiers compose with cross-cutting modules
 

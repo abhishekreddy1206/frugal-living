@@ -8,6 +8,7 @@ rolled back at teardown, so tests don't leak rows.
 The starter ingredient catalog and dev household are seeded once at the start of
 the session (idempotent) so resolver tests have a stable backdrop to query against.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import DEV_HOUSEHOLD_ID, seed_dev_fixtures
 from app.db import SessionLocal, engine
-from app.models.ai import Briefing
+from app.models.ai import Briefing, Conversation
 from app.models.content import ContentItem
 from app.models.core import Event
 from app.models.food import (
@@ -52,6 +53,7 @@ def _clean_household_data():
         db_.query(Briefing).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
         # Content items are global (no household_id); tests create them freely.
         db_.query(ContentItem).delete()
+        db_.query(Conversation).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
         db_.query(Event).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
         db_.commit()
     yield

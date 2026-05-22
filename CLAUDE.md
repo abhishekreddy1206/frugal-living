@@ -18,7 +18,7 @@ We are pre-launch. No real users yet. **Speed and clean foundations > polish.** 
 
 What's fully implemented:
 - **`food` (Tier A)** — pantry photo capture, recipe stretcher, weekly meal plan, shopping list from plan, waste tracking + savings rollup, preservation coach (with botulism safeguards). All wired to Claude through `services/llm.py`.
-- **`ai`** — daily briefings (Sprint 7). Conversations + voice are still stubs.
+- **`ai`** — daily briefings (Sprint 7); conversational chat assistant — per-page conversation threads with food-tier actions (add/remove/update pantry, log waste, mark cooked, generate meal plan) and grounded Q&A. Voice is still a stub.
 - **`tracking`** — streaks + badges (Sprint 8). Dashboard / savings / budgets are still stubs.
 - **`content`** — YouTube link capture + feed (`POST /content/capture`, `GET /content/feed`, `DELETE /content/items/{id}`). Resolves metadata via YouTube oEmbed (no API key). Channel/RSS/Reddit polling still stubbed.
 - **Frontend** — a warm editorial design system (Fraunces + Hanken Grotesk, app shell with sidebar nav). Pages for all six food features (`/pantry`, `/stretch`, `/plan`, `/shopping`, `/preservation`, `/waste`), the `/watch` library, and a home dashboard.
@@ -26,7 +26,7 @@ What's fully implemented:
 
 What's still stubbed (endpoints return placeholder JSON with a `todo` key):
 - `food`: `/pantry/receipt`, `/pantry/barcode` (Sprint 1.5).
-- `ai`: `/conversations/*`, `/voice/*`.
+- `ai`: `/voice/*`; `GET /conversations` (thread-list view) is still a stub.
 - `tracking`: `/dashboard`, `/savings`, `/budgets`.
 - `content`: channel ingestion (`/sources`, `/ingest/run`); `services/{reddit,blog_importer}.py` are placeholders.
 - `llm.extract_receipt` and `llm.rank_content_for_household` raise `NotImplementedError`.

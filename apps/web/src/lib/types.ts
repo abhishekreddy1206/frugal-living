@@ -256,3 +256,32 @@ export interface ContentFeed {
   items: ContentItem[];
   count: number;
 }
+
+// ---------- Chat assistant ----------
+
+export interface ActionResult {
+  type: string;
+  status: "ok" | "error";
+  summary: string;
+  error: string | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ConversationOpenResponse {
+  conversation_id: string;
+  page: string;
+  messages: ChatMessage[];
+}
+
+export interface ChatTurnResponse {
+  message_id: string;
+  reply: string;
+  actions: ActionResult[];
+}
