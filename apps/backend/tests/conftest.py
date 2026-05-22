@@ -54,7 +54,9 @@ def _clean_household_data():
         # Content items are global (no household_id); tests create them freely.
         db_.query(ContentItem).delete()
         db_.query(Conversation).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
-        db_.query(Event).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
+        # Events are wiped wholesale: some (e.g. content enrichment) have no
+        # household_id, and no test depends on pre-existing event rows.
+        db_.query(Event).delete()
         db_.commit()
     yield
 
