@@ -125,3 +125,14 @@ def test_resolve_video_metadata_falls_back_to_oembed(monkeypatch):
     meta = youtube.resolve_video_metadata(VIDEO_URL)
     assert meta.title == "oEmbed title"
     assert meta.description is None
+
+
+def test_fetch_video_details_returns_none_on_connection_error(monkeypatch):
+    """fetch_video_details must never raise — a transport error returns None."""
+    monkeypatch.setattr(youtube.settings, "youtube_api_key", "test-key")
+
+    def boom(*args, **kwargs):
+        raise youtube.httpx.ConnectError("simulated connection failure")
+
+    monkeypatch.setattr(youtube.httpx, "get", boom)
+    assert youtube.fetch_video_details("dQw4w9WgXcQ") is None
