@@ -17,8 +17,8 @@ from sqlalchemy.orm import Session
 from app.auth import DEV_HOUSEHOLD_ID, seed_dev_fixtures
 from app.db import SessionLocal, engine
 from app.models.ai import Briefing, Conversation
-from app.models.content import ContentItem
 from app.models.community import CommunityItem
+from app.models.content import ContentItem
 from app.models.core import Event
 from app.models.food import (
     FoodWasteEvent,
