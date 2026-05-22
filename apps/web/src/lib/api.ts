@@ -1,8 +1,10 @@
 import type {
   BadgeAward,
   Briefing,
+  ChatTurnResponse,
   ContentFeed,
   ContentItem,
+  ConversationOpenResponse,
   CookedResponse,
   MealPlan,
   PantryCaptureResponse,
@@ -265,6 +267,25 @@ export function deleteContentItem(id: string): Promise<{ status: string }> {
   return api<{ status: string }>(`/api/v1/content/items/${id}`, {
     method: "DELETE",
   });
+}
+
+// ---------- Chat assistant ----------
+
+export function openConversation(page: string): Promise<ConversationOpenResponse> {
+  return api<ConversationOpenResponse>("/api/v1/ai/conversations", {
+    method: "POST",
+    body: JSON.stringify({ page }),
+  });
+}
+
+export function sendChatMessage(
+  conversationId: string,
+  content: string,
+): Promise<ChatTurnResponse> {
+  return api<ChatTurnResponse>(
+    `/api/v1/ai/conversations/${conversationId}/messages`,
+    { method: "POST", body: JSON.stringify({ content }) },
+  );
 }
 
 /** Read a File as a base64 string (without the data:...;base64, prefix). */
