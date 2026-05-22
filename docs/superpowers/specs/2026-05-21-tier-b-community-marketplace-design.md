@@ -51,6 +51,8 @@ Single-household, zero marketplace. Catalog what you own beyond the food pantry 
 
 ### Phase 3 — Exchange Engine
 The borrow / swap / gift lifecycle — the heaviest phase.
+
+> **Prerequisite — real authentication.** Phase 3 is the first point where households transact with *each other*, which is meaningless while the app authenticates every request as one hardcoded dev household (`app/auth.py` stub). **Real auth + multi-household is a hard gate on Phase 3** and must ship before it. Phases 1–2 run fine on the stub (they are single-household reads/writes), so this can land any time before Phase 3. Design: `docs/superpowers/specs/2026-05-22-real-auth-multi-household-design.md`. It also delivers the active-household model and member-role enforcement that the exchange engine depends on.
 - **Table:** `community.exchanges` with a per-type state machine:
   - **borrow:** `requested → accepted → handed_over → returned` (+ `overdue`, `declined`, `cancelled`)
   - **swap:** `proposed → countered → accepted → completed`
