@@ -77,6 +77,10 @@ export default function ChatSidebar() {
         { role: "assistant", content: res.reply, actions: res.actions },
       ]);
     } catch {
+      // Roll back the optimistic user bubble and restore the draft so a retry
+      // doesn't duplicate the message or force a retype.
+      setMsgs((m) => m.slice(0, -1));
+      setDraft(text);
       setError("Something went wrong. Try again.");
     } finally {
       setBusy(false);
@@ -119,7 +123,7 @@ export default function ChatSidebar() {
       </header>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
-        {msgs.length === 0 && (
+        {convId !== null && msgs.length === 0 && (
           <div className="mr-8 rounded-2xl rounded-bl-sm border border-line bg-paper px-3.5 py-2.5 text-sm text-ink">
             {GREETING}
           </div>
