@@ -16,6 +16,7 @@ import type {
   PreservationMethod,
   PreservationMethodInfo,
   PurchasedItemResponse,
+  RecipeSuggestionsResponse,
   SavingsRollup,
   ShoppingList,
   Streak,
@@ -300,4 +301,12 @@ export function fileToBase64(file: File): Promise<{ base64: string; mediaType: s
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+export function getRecipeSuggestions(
+  limit = 12,
+): Promise<RecipeSuggestionsResponse> {
+  return api<RecipeSuggestionsResponse>(
+    `/api/v1/content/recipe-suggestions?limit=${limit}`,
+  );
 }
