@@ -6,6 +6,9 @@ import type {
   ContentItem,
   ConversationOpenResponse,
   CookedResponse,
+  InventoryItem,
+  ItemCaptureResponse,
+  ItemCategory,
   MealPlan,
   PantryCaptureResponse,
   PantryItem,
@@ -309,4 +312,48 @@ export function getRecipeSuggestions(
   return api<RecipeSuggestionsResponse>(
     `/api/v1/content/recipe-suggestions?limit=${limit}`,
   );
+}
+
+// ---------- Community / inventory (Tier B) ----------
+
+export function listInventory(category?: string): Promise<InventoryItem[]> {
+  const qs = category ? `?category=${encodeURIComponent(category)}` : "";
+  return api<InventoryItem[]>(`/api/v1/community/items${qs}`);
+}
+
+export function captureInventory(
+  imageBase64: string,
+  mediaType: string,
+): Promise<ItemCaptureResponse> {
+  return api<ItemCaptureResponse>("/api/v1/community/items/capture", {
+    method: "POST",
+    body: JSON.stringify({ image_base64: imageBase64, media_type: mediaType }),
+  });
+}
+
+export function createInventoryItem(args: {
+  name: string;
+  category?: ItemCategory;
+  tags?: string[];
+  quantity?: number;
+  location?: string;
+  notes?: string;
+}): Promise<InventoryItem> {
+  return api<InventoryItem>("/api/v1/community/items", {
+    method: "POST",
+    body: JSON.stringify({
+      name: args.name,
+      category: args.category ?? "other",
+      tags: args.tags ?? [],
+      quantity: args.quantity ?? 1,
+      location: args.location,
+      notes: args.notes,
+    }),
+  });
+}
+
+export function deleteInventoryItem(id: string): Promise<{ status: string }> {
+  return api<{ status: string }>(`/api/v1/community/items/${id}`, {
+    method: "DELETE",
+  });
 }

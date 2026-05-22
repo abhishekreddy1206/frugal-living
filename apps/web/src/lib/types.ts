@@ -306,3 +306,40 @@ export interface RecipeSuggestionsResponse {
   suggestions: RecipeSuggestion[];
   pantry_size: number;
 }
+
+// ---------- Community / inventory (Tier B) ----------
+
+export type ItemCategory =
+  | "tools"
+  | "games"
+  | "books"
+  | "kitchen"
+  | "outdoor"
+  | "electronics"
+  | "furniture"
+  | "kids"
+  | "sports"
+  | "other";
+
+export type ItemCondition = "new" | "like_new" | "good" | "fair" | "poor";
+
+export interface InventoryItem {
+  id: string;
+  name: string;
+  category: ItemCategory;
+  tags: string[];
+  quantity: number;
+  condition: ItemCondition | null;
+  estimated_value_usd: number | null;
+  location: string | null;
+  photo_url: string | null;
+  source: string;
+  confidence: number | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface ItemCaptureResponse {
+  items: InventoryItem[];
+  created_count: number;
+}
