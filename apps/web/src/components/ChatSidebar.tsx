@@ -1,8 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { openConversation, sendChatMessage } from "@/lib/api";
+import type { ActionResult } from "@/lib/types";
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = {
+  role: "user" | "assistant";
+  content: string;
+  actions?: ActionResult[];
+};
+
+const GREETING =
+  "Hi, I'm Hearth. I can add things to your pantry, plan meals, log waste, and answer " +
+  "questions about what you have. What do you need?";
 
 function Flame({ className }: { className?: string }) {
   return (
@@ -13,33 +24,64 @@ function Flame({ className }: { className?: string }) {
 }
 
 /**
- * Always-available Hearth chat. Collapsed to a pill by default so it never
- * crowds the page. Stub — wire to POST /api/v1/ai/conversations/{id}/messages.
+ * Always-available Hearth chat. Collapsed to a pill by default. The conversation
+ * is scoped to the current page — navigating swaps to that page's thread.
  */
 export default function ChatSidebar() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [msgs, setMsgs] = useState<Msg[]>([
-    {
-      role: "assistant",
-      content:
-        "Hello. I can help you stretch your pantry, plan a week of meals, or think through what to cook tonight.",
-    },
-  ]);
+  const [convId, setConvId] = useState<string | null>(null);
+  const [msgs, setMsgs] = useState<Msg[]>([]);
   const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function send() {
-    if (!draft.trim()) return;
-    setMsgs((m) => [
-      ...m,
-      { role: "user", content: draft },
-      {
-        role: "assistant",
-        content:
-          "Conversational chat isn't wired up yet — the endpoint lives in apps/backend/app/routers/ai.py.",
-      },
-    ]);
+  // Load (or create) the conversation for the current page whenever the sidebar
+  // is open and the route changes.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setConvId(null);
+    setError(null);
+    openConversation(pathname)
+      .then((res) => {
+        if (cancelled) return;
+        setConvId(res.conversation_id);
+        setMsgs(
+          res.messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+            actions: (m.payload?.results as ActionResult[] | undefined) ?? undefined,
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setError("Couldn't load the assistant.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, pathname]);
+
+  const send = useCallback(async () => {
+    const text = draft.trim();
+    if (!text || !convId || busy) return;
     setDraft("");
-  }
+    setError(null);
+    setMsgs((m) => [...m, { role: "user", content: text }]);
+    setBusy(true);
+    try {
+      const res = await sendChatMessage(convId, text);
+      setMsgs((m) => [
+        ...m,
+        { role: "assistant", content: res.reply, actions: res.actions },
+      ]);
+    } catch {
+      setError("Something went wrong. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }, [draft, convId, busy]);
 
   if (!open) {
     return (
@@ -64,7 +106,7 @@ export default function ChatSidebar() {
             <div className="font-display text-[17px] font-semibold text-ink">
               Hearth chat
             </div>
-            <div className="text-[11px] text-ink-faint">Knows your pantry &amp; plan</div>
+            <div className="text-[11px] text-ink-faint">Knows this page&apos;s context</div>
           </div>
         </div>
         <button
@@ -77,18 +119,46 @@ export default function ChatSidebar() {
       </header>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
+        {msgs.length === 0 && (
+          <div className="mr-8 rounded-2xl rounded-bl-sm border border-line bg-paper px-3.5 py-2.5 text-sm text-ink">
+            {GREETING}
+          </div>
+        )}
         {msgs.map((m, i) => (
-          <div
-            key={i}
-            className={
-              m.role === "user"
-                ? "ml-8 rounded-2xl rounded-br-sm bg-clay px-3.5 py-2.5 text-sm text-paper"
-                : "mr-8 rounded-2xl rounded-bl-sm border border-line bg-paper px-3.5 py-2.5 text-sm text-ink"
-            }
-          >
-            {m.content}
+          <div key={i}>
+            <div
+              className={
+                m.role === "user"
+                  ? "ml-8 rounded-2xl rounded-br-sm bg-clay px-3.5 py-2.5 text-sm text-paper"
+                  : "mr-8 rounded-2xl rounded-bl-sm border border-line bg-paper px-3.5 py-2.5 text-sm text-ink"
+              }
+            >
+              {m.content}
+            </div>
+            {m.actions && m.actions.length > 0 && (
+              <div className="mr-8 mt-1.5 flex flex-wrap gap-1.5">
+                {m.actions.map((a, j) => (
+                  <span
+                    key={j}
+                    className={
+                      a.status === "ok"
+                        ? "rounded-full border border-line bg-paper px-2 py-0.5 text-[11px] text-ink-faint"
+                        : "rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-800"
+                    }
+                  >
+                    {a.status === "ok" ? "✓" : "⚠"} {a.summary}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         ))}
+        {busy && (
+          <div className="mr-8 rounded-2xl rounded-bl-sm border border-line bg-paper px-3.5 py-2.5 text-sm text-ink-faint">
+            Hearth is thinking…
+          </div>
+        )}
+        {error && <div className="text-[12px] text-amber-800">{error}</div>}
       </div>
 
       <form
@@ -101,19 +171,21 @@ export default function ChatSidebar() {
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Ask anything…"
-          className="flex-1 rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-clay focus:outline-none"
+          placeholder={convId ? "Ask anything…" : "Loading…"}
+          disabled={!convId || busy}
+          className="flex-1 rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-clay focus:outline-none disabled:opacity-60"
         />
         <button
           type="submit"
-          className="rounded-lg bg-ink px-3.5 py-2 text-sm font-semibold text-paper transition hover:bg-clay"
+          disabled={!convId || busy || !draft.trim()}
+          className="rounded-lg bg-ink px-3.5 py-2 text-sm font-semibold text-paper transition hover:bg-clay disabled:opacity-50"
         >
           Send
         </button>
       </form>
 
       <p className="px-5 pb-3 text-[11px] text-ink-faint">
-        Voice (&ldquo;hey Hearth&rdquo;) &amp; live chat — wired in an upcoming sprint.
+        Voice (&ldquo;hey Hearth&rdquo;) — wired in an upcoming sprint.
       </p>
     </aside>
   );
