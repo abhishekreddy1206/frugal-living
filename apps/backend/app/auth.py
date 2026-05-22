@@ -73,8 +73,12 @@ def seed_dev_fixtures() -> None:
                     plan="suite",
                     status="active",
                     tier_a_enabled=True,
+                    tier_b_enabled=True,
                 )
             )
+        else:
+            # Idempotently enable Tier B on pre-existing dev databases.
+            subscription.tier_b_enabled = True
 
         db.commit()
 

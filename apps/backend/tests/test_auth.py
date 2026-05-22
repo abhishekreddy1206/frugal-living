@@ -34,3 +34,13 @@ def test_seed_dev_fixtures_creates_and_is_idempotent():
         subs = db.query(Subscription).filter_by(user_id=DEV_USER_ID).all()
         assert len(subs) == 1
         assert subs[0].tier_a_enabled is True
+
+
+def test_dev_subscription_has_tier_b_enabled():
+    from app.auth import DEV_USER_ID
+    from app.db import SessionLocal
+    from app.models.core import Subscription
+
+    with SessionLocal() as db:
+        sub = db.query(Subscription).filter_by(user_id=DEV_USER_ID).one()
+        assert sub.tier_b_enabled is True
