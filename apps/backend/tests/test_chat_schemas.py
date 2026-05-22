@@ -25,3 +25,25 @@ def test_chat_action_keeps_ids_as_raw_strings():
         {"type": "remove_pantry_item", "pantry_item_id": "not-a-uuid"}
     )
     assert action.pantry_item_id == "not-a-uuid"
+
+
+def test_chat_action_accepts_inventory_types_and_fields():
+    from app.schemas.ai import ChatAction
+
+    add = ChatAction(
+        type="add_inventory_item",
+        raw_name="DeWalt drill",
+        category="tools",
+        tags=["cordless"],
+        condition="good",
+        estimated_value_usd=90.0,
+        location="garage",
+    )
+    assert add.type == "add_inventory_item"
+    assert add.tags == ["cordless"]
+
+    remove = ChatAction(
+        type="remove_inventory_item",
+        inventory_item_id="00000000-0000-0000-0000-000000000001",
+    )
+    assert remove.inventory_item_id is not None

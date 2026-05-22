@@ -15,6 +15,9 @@ ChatActionType = Literal[
     "log_waste",
     "mark_recipe_cooked",
     "generate_meal_plan",
+    "add_inventory_item",
+    "update_inventory_item",
+    "remove_inventory_item",
 ]
 
 
@@ -45,6 +48,14 @@ class ChatAction(BaseModel):
     target_budget_usd: float | None = None
     dinners_per_week: int | None = None
     dietary_constraints: list[str] | None = None
+    # add / update / remove inventory item (Tier B). raw_name carries the item
+    # name and quantity is reused from the pantry fields above.
+    inventory_item_id: str | None = None
+    category: str | None = None
+    tags: list[str] | None = None
+    condition: str | None = None
+    estimated_value_usd: float | None = None
+    location: str | None = None
 
 
 class ChatTurnResult(BaseModel):
