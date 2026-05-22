@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth import seed_dev_fixtures
-from app.routers import ai, content, food, health, tracking
+from app.routers import ai, community, content, food, health, tracking
 
 
 @asynccontextmanager
@@ -34,9 +34,11 @@ app.include_router(content.router, prefix="/api/v1/content", tags=["content"])
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["ai"])
 app.include_router(tracking.router, prefix="/api/v1/tracking", tags=["tracking"])
 
+# Tier B — community
+app.include_router(community.router, prefix="/api/v1/community", tags=["community"])
+
 # Future tiers:
 # app.include_router(bills.router, prefix="/api/v1/bills", tags=["bills"])
-# app.include_router(community.router, prefix="/api/v1/community", tags=["community"])
 
 
 @app.get("/")
@@ -45,5 +47,5 @@ def root():
         "name": "frugal-living",
         "version": "0.1.0",
         "tier_a": True,
-        "modules": ["food", "content", "ai", "tracking"],
+        "modules": ["food", "community", "content", "ai", "tracking"],
     }
