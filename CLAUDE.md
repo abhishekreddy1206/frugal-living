@@ -20,7 +20,7 @@ What's fully implemented:
 - **`food` (Tier A)** — pantry photo capture, recipe stretcher, weekly meal plan, shopping list from plan, waste tracking + savings rollup, preservation coach (with botulism safeguards). All wired to Claude through `services/llm.py`.
 - **`ai`** — daily briefings (Sprint 7); conversational chat assistant — per-page conversation threads with food-tier actions (add/remove/update pantry, log waste, mark cooked, generate meal plan) and grounded Q&A. Voice is still a stub.
 - **`tracking`** — streaks + badges (Sprint 8). Dashboard / savings / budgets are still stubs.
-- **`content`** — YouTube link capture + feed (`POST /content/capture`, `GET /content/feed`, `DELETE /content/items/{id}`). Resolves metadata via YouTube oEmbed (no API key). Channel/RSS/Reddit polling still stubbed.
+- **`content`** — YouTube link capture + feed; captured videos are enriched (YouTube Data API description + AI ingredient extraction → canonical ingredient IDs) and the `/watch` library ranks them by pantry fit via `GET /content/recipe-suggestions`; `POST /content/enrich` backfills older videos. Channel/RSS/Reddit polling still stubbed.
 - **Frontend** — a warm editorial design system (Fraunces + Hanken Grotesk, app shell with sidebar nav). Pages for all six food features (`/pantry`, `/stretch`, `/plan`, `/shopping`, `/preservation`, `/waste`), the `/watch` library, and a home dashboard.
 - **Infra** — dev user/household, starter ingredients, and badge definitions are seeded on startup (`app/auth.py`). Two migrations applied (`0001` schemas, `0002` all tables). `./frugal up` runs the whole stack.
 

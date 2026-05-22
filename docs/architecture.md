@@ -93,7 +93,8 @@ tracking/                Cross-cutting
    touching core. Known food-tier event types: `food.receipt.parsed`,
    `food.pantry_item.added`, `food.pantry_item.removed` (chat-driven removal),
    `food.pantry_item.updated` (chat-driven update), `food.pantry_item.wasted`,
-   `food.meal.cooked`.
+   `food.meal.cooked`; and content-tier `content.item.enriched` (emitted when a
+   saved video is enriched with AI-extracted ingredients).
 
 ## How tiers compose with cross-cutting modules
 
