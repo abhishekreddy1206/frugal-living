@@ -1,4 +1,5 @@
 """Tests for content enrichment."""
+
 from __future__ import annotations
 
 from app.models.content import ContentItem
@@ -48,8 +49,12 @@ def test_enrich_content_item_fetches_details_when_body_missing(db, monkeypatch):
         content,
         "fetch_video_details",
         lambda video_id: VideoDetails(
-            title="t", author="a", description="Uses rice.", youtube_tags=["rice"],
-            duration_seconds=120, published_at=None,
+            title="t",
+            author="a",
+            description="Uses rice.",
+            youtube_tags=["rice"],
+            duration_seconds=120,
+            published_at=None,
         ),
     )
     monkeypatch.setattr(

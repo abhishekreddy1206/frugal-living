@@ -1,4 +1,5 @@
 """Pydantic request/response schemas for the content module."""
+
 from __future__ import annotations
 
 import uuid

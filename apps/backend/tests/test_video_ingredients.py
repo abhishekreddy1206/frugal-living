@@ -1,4 +1,5 @@
 """Tests for the extract_video_ingredients LLM function."""
+
 from __future__ import annotations
 
 import json
@@ -24,7 +25,9 @@ def test_extract_video_ingredients_parses_recipe(monkeypatch):
             }
         )
     )
-    result = llm.extract_video_ingredients("Easy Tomato Pasta", "A quick weeknight dinner.", ["pasta"])
+    result = llm.extract_video_ingredients(
+        "Easy Tomato Pasta", "A quick weeknight dinner.", ["pasta"]
+    )
     assert result.is_recipe_video is True
     assert result.dish_name == "Tomato Pasta"
     assert "garlic" in result.ingredients

@@ -1,4 +1,5 @@
 """Unit tests for the YouTube metadata service (network boundary mocked)."""
+
 from __future__ import annotations
 
 import json

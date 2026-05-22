@@ -1,4 +1,5 @@
 """Content module — capture & feed external content (YouTube now; blog/Reddit later)."""
+
 from __future__ import annotations
 
 import logging
@@ -44,12 +45,7 @@ def feed(
     query = db.query(ContentItem).filter(ContentItem.deleted_at.is_(None))
     if topic:
         query = query.filter(ContentItem.topic == topic)
-    rows = (
-        query.order_by(ContentItem.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-        .all()
-    )
+    rows = query.order_by(ContentItem.created_at.desc()).limit(limit).offset(offset).all()
     return FeedResponse(
         items=[ContentItemRead.model_validate(r) for r in rows],
         count=len(rows),

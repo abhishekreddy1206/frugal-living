@@ -1,4 +1,5 @@
 """End-to-end tests for the recipe-suggestions and enrich endpoints."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta

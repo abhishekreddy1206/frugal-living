@@ -6,6 +6,7 @@ stored), ask Claude for the ingredient list, resolve those to canonical
 food.ingredients IDs, and store everything on the ContentItem. Ranking is
 rule-based set overlap against the live pantry — no LLM call, per request.
 """
+
 from __future__ import annotations
 
 import logging
@@ -142,6 +143,8 @@ def rank_videos_for_pantry(
         .all()
     )
     for row in pantry_rows:
+        if row.ingredient_id is None:
+            continue
         days = (row.expires_at - today).days if row.expires_at else None
         if row.ingredient_id not in pantry:
             pantry[row.ingredient_id] = days
@@ -155,11 +158,7 @@ def rank_videos_for_pantry(
 
     names_by_id = {r.id: r.display_name for r in db.query(Ingredient).all()}
 
-    items = (
-        db.query(ContentItem)
-        .filter(ContentItem.deleted_at.is_(None))
-        .all()
-    )
+    items = db.query(ContentItem).filter(ContentItem.deleted_at.is_(None)).all()
     ranked: list[RankedVideo] = []
     for item in items:
         meta = item.metadata_ or {}
@@ -206,9 +205,7 @@ def enrich_pending(db: Session, *, limit: int = 20) -> EnrichResult:
 
     Flushes via `enrich_content_item`; the caller is responsible for the commit.
     """
-    candidates = (
-        db.query(ContentItem).filter(ContentItem.deleted_at.is_(None)).all()
-    )
+    candidates = db.query(ContentItem).filter(ContentItem.deleted_at.is_(None)).all()
     todo = [it for it in candidates if not (it.metadata_ or {}).get("enrichment")]
     batch = todo[:limit]
     enriched = 0
@@ -218,6 +215,4 @@ def enrich_pending(db: Session, *, limit: int = 20) -> EnrichResult:
             enriched += 1
         else:
             failed += 1
-    return EnrichResult(
-        enriched=enriched, failed=failed, remaining=max(0, len(todo) - len(batch))
-    )
+    return EnrichResult(enriched=enriched, failed=failed, remaining=max(0, len(todo) - len(batch)))

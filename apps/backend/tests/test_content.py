@@ -1,4 +1,5 @@
 """End-to-end tests for the content capture + feed endpoints."""
+
 from __future__ import annotations
 
 import pytest
@@ -54,9 +55,7 @@ def test_capture_creates_item_and_emits_event(client, mock_youtube):
     assert body["topic"] == "food"
 
     with SessionLocal() as db:
-        events = (
-            db.query(Event).filter(Event.event_type == "content.item.captured").all()
-        )
+        events = db.query(Event).filter(Event.event_type == "content.item.captured").all()
         assert len(events) == 1
         assert events[0].payload["external_id"] == "dQw4w9WgXcQ"
 
@@ -68,16 +67,12 @@ def test_capture_rejects_non_youtube_url(client, mock_youtube):
 
 
 def test_capture_rejects_unknown_topic(client, mock_youtube):
-    resp = client.post(
-        "/api/v1/content/capture", json={"url": VIDEO_A, "topic": "nonsense"}
-    )
+    resp = client.post("/api/v1/content/capture", json={"url": VIDEO_A, "topic": "nonsense"})
     assert resp.status_code == 422
 
 
 def test_capture_accepts_a_valid_non_default_topic(client, mock_youtube):
-    resp = client.post(
-        "/api/v1/content/capture", json={"url": VIDEO_A, "topic": "general"}
-    )
+    resp = client.post("/api/v1/content/capture", json={"url": VIDEO_A, "topic": "general"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["topic"] == "general"
 

@@ -1,4 +1,5 @@
 """Tests for the recipe-suggestion content schemas."""
+
 from __future__ import annotations
 
 from app.schemas.content import RecipeSuggestion, VideoIngredients

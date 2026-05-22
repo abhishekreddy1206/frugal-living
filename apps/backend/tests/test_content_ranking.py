@@ -1,4 +1,5 @@
 """Tests for pantry-fit ranking and the enrichment backfill."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -33,7 +34,9 @@ def _video(db, *, title, ingredient_ids, is_recipe=True):
 
 def _pantry(db, ingredient_id, *, expires_in_days=None):
     household = db.get(Household, DEV_HOUSEHOLD_ID)
-    expires = date.today() + timedelta(days=expires_in_days) if expires_in_days is not None else None
+    expires = (
+        date.today() + timedelta(days=expires_in_days) if expires_in_days is not None else None
+    )
     db.add(
         PantryItem(
             household_id=household.id,
