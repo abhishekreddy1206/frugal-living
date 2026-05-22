@@ -42,6 +42,7 @@ export default function ChatSidebar() {
     if (!open) return;
     let cancelled = false;
     setConvId(null);
+    setMsgs([]);
     setError(null);
     openConversation(pathname)
       .then((res) => {
