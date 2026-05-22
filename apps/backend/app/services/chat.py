@@ -17,11 +17,14 @@ from sqlalchemy import asc, nulls_last
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.ai import Conversation, Message
+from app.models.community import CommunityItem
 from app.models.core import Household, User
 from app.models.food import PantryItem, Recipe
 from app.schemas.ai import ActionResult, ChatAction, ChatTurnResponse, ChatTurnResult
 from app.schemas.food import WasteLogRequest, WeekPlanConstraints
 from app.services import llm
+from app.services.community import items as community_items
+from app.services.community.items import CommunityItemNotFound
 from app.services.events import emit_event
 from app.services.meal_plans import (
     create_meal_plan_from_ai,
@@ -50,6 +53,7 @@ _ROUTE_TO_PAGE = {
     "/shopping": "shopping",
     "/preservation": "preservation",
     "/waste": "waste",
+    "/inventory": "inventory",
     "/watch": "watch",
 }
 _PAGE_KEYS = set(_ROUTE_TO_PAGE.values())
@@ -74,6 +78,11 @@ def normalize_page(raw: str) -> str:
 # ---------- Conversations ----------
 
 
+def _scope_for_page(page_key: str) -> str:
+    """The conversation scope for a page key: inventory is Tier B, the rest food."""
+    return "community" if page_key == "inventory" else "food"
+
+
 def get_or_create_conversation(db: Session, *, household: Household, page: str) -> Conversation:
     """Return the household's conversation for `page`, creating it if absent."""
     key = normalize_page(page)
@@ -91,7 +100,7 @@ def get_or_create_conversation(db: Session, *, household: Household, page: str) 
         return conv
     conv = Conversation(
         household_id=household.id,
-        scope="food",
+        scope=_scope_for_page(key),
         surface="sidebar",
         title=key.capitalize(),
         metadata_={"page": key},
@@ -146,10 +155,35 @@ def _savings_context(db: Session, household: Household) -> str:
     )
 
 
+def _inventory_context(db: Session, household: Household) -> str:
+    rows = (
+        db.query(CommunityItem)
+        .filter(
+            CommunityItem.household_id == household.id,
+            CommunityItem.deleted_at.is_(None),
+        )
+        .order_by(CommunityItem.created_at.desc())
+        .all()
+    )
+    if not rows:
+        return "INVENTORY: (empty)"
+    lines = ["INVENTORY (use the id for update/remove actions):"]
+    for r in rows:
+        qty = f" x{r.quantity}" if r.quantity and r.quantity > 1 else ""
+        tags = f" [{', '.join(r.tags)}]" if r.tags else ""
+        loc = f" · {r.location}" if r.location else ""
+        cond = f" · {r.condition}" if r.condition else ""
+        lines.append(f"- id={r.id} | {r.name}{qty} | {r.category}{tags}{loc}{cond}")
+    return "\n".join(lines)
+
+
 def build_page_context(db: Session, *, household: Household, page: str) -> str:
-    """Assemble the grounding block fed to Claude for a page. The pantry snapshot
-    is included everywhere; plan/savings are layered on for the relevant pages."""
+    """Assemble the grounding block fed to Claude for a page. The inventory page
+    (Tier B) is grounded in inventory only; food pages get pantry plus, where
+    relevant, the meal plan and savings."""
     key = normalize_page(page)
+    if key == "inventory":
+        return _inventory_context(db, household)
     sections = [_pantry_context(db, household)]
     if key in ("plan", "shopping"):
         sections.append(_plan_context(db, household))
@@ -296,6 +330,69 @@ def _do_generate_meal_plan(
     )
 
 
+def _do_add_inventory_item(
+    db: Session, household: Household, user: User, action: ChatAction
+) -> ActionResult:
+    if not action.raw_name:
+        raise _ActionError("missing item name")
+    quantity = int(action.quantity) if action.quantity is not None else 1
+    item = community_items.create_item(
+        db,
+        household=household,
+        user=user,
+        name=action.raw_name,
+        category=action.category or "other",
+        tags=action.tags or [],
+        quantity=quantity,
+        condition=action.condition,
+        estimated_value_usd=action.estimated_value_usd,
+        location=action.location,
+        source="chat",
+    )
+    return ActionResult(
+        type=action.type, status="ok", summary=f"Added {item.name} to your inventory"
+    )
+
+
+def _do_update_inventory_item(
+    db: Session, household: Household, user: User, action: ChatAction
+) -> ActionResult:
+    iid = _parse_uuid(action.inventory_item_id, "inventory_item_id")
+    quantity = int(action.quantity) if action.quantity is not None else None
+    try:
+        item = community_items.update_item(
+            db,
+            household=household,
+            user=user,
+            item_id=iid,
+            name=action.raw_name,
+            category=action.category,
+            tags=action.tags,
+            quantity=quantity,
+            condition=action.condition,
+            estimated_value_usd=action.estimated_value_usd,
+            location=action.location,
+        )
+    except CommunityItemNotFound:
+        raise _ActionError("inventory item not found") from None
+    return ActionResult(type=action.type, status="ok", summary=f"Updated {item.name}")
+
+
+def _do_remove_inventory_item(
+    db: Session, household: Household, user: User, action: ChatAction
+) -> ActionResult:
+    iid = _parse_uuid(action.inventory_item_id, "inventory_item_id")
+    try:
+        item = community_items.soft_delete_item(
+            db, household=household, user=user, item_id=iid
+        )
+    except CommunityItemNotFound:
+        raise _ActionError("inventory item not found") from None
+    return ActionResult(
+        type=action.type, status="ok", summary=f"Removed {item.name} from your inventory"
+    )
+
+
 _DISPATCH = {
     "add_pantry_item": _do_add_pantry_item,
     "remove_pantry_item": _do_remove_pantry_item,
@@ -303,6 +400,9 @@ _DISPATCH = {
     "log_waste": _do_log_waste,
     "mark_recipe_cooked": _do_mark_recipe_cooked,
     "generate_meal_plan": _do_generate_meal_plan,
+    "add_inventory_item": _do_add_inventory_item,
+    "update_inventory_item": _do_update_inventory_item,
+    "remove_inventory_item": _do_remove_inventory_item,
 }
 
 
