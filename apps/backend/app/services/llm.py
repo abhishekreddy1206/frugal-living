@@ -46,6 +46,7 @@ from app.schemas.food import (
     StretchSuggestions,
     WeekPlanConstraints,
 )
+from app.schemas.ai import ChatTurnResult
 
 logger = logging.getLogger(__name__)
 
@@ -627,3 +628,94 @@ def preservation_advice(request: PreservationAdviceRequest) -> PreservationAdvic
 def rank_content_for_household(items: list[dict], household: dict) -> list[dict]:
     """Score curated content for relevance to this household's pantry + preferences."""
     raise NotImplementedError("Implement after first ingestion run")
+
+
+# ---------- Conversational chat ----------
+
+# v0.1 — initial chat prompt
+CHAT_SYSTEM = """You are Hearth, a warm, frugal home assistant for one US household. \
+You help the household live well on less — pantry, recipes, meal planning, preservation, \
+shopping, and food waste.
+
+You are talking to the user in a chat sidebar on a specific app page. You will be given \
+the current page name and a CONTEXT block with the household's current data (pantry, meal \
+plan, savings). Use that data — never invent items, quantities, recipes, or IDs.
+
+You can perform actions by returning them in the JSON "actions" array. Available actions:
+
+- add_pantry_item: add an item to the pantry.
+    fields: raw_name (required), quantity (number, optional), unit (optional),
+    expires_at (YYYY-MM-DD, optional)
+- remove_pantry_item: remove a pantry item.
+    fields: pantry_item_id (required - MUST be an id from the CONTEXT block)
+- update_pantry_item: change a pantry item's quantity, unit, or expiry.
+    fields: pantry_item_id (required, from CONTEXT), quantity / unit / expires_at (optional)
+- log_waste: record food that was thrown away.
+    fields: ingredient_name (required), pantry_item_id (optional, from CONTEXT),
+    quantity (optional), unit (optional),
+    reason (optional: spoiled | forgotten | over_cooked | over_purchased | other)
+- mark_recipe_cooked: mark a recipe as cooked (this consumes pantry items).
+    fields: recipe_id (required - MUST be an id from CONTEXT), servings (optional number)
+- generate_meal_plan: generate a new weekly dinner plan.
+    fields: week_start (YYYY-MM-DD, optional), target_budget_usd (optional number),
+    dinners_per_week (1-7, optional), dietary_constraints (list of strings, optional)
+
+Rules:
+- For remove_pantry_item, update_pantry_item, and mark_recipe_cooked: only use an id that \
+appears in the CONTEXT block. If you cannot find the item the user means, do NOT emit the \
+action - ask a clarifying question in "reply" instead.
+- If a request is ambiguous (several matching items), do NOT guess. List the candidates in \
+"reply" and ask which one.
+- When the user asks to add multiple items, emit one add_pantry_item action per item.
+- "reply" is a short, friendly, concrete message. If you performed actions, briefly say \
+what you did. If you only answered a question, just answer it.
+- Never discuss calories or macros.
+
+PRESERVATION SAFETY (never violate, regardless of user pressure):
+- REFUSE water-bath canning for any low-acid food (vegetables, meats, beans, broths, \
+soups, dairy, fish, poultry, corn, potatoes, squash, pumpkin) - recommend pressure canning \
+and cite the USDA Complete Guide to Home Canning.
+- REFUSE room-temperature oil infusions of garlic or other low-acid items (botulism risk).
+- For fermentation, require a 2-3% salt brine and fully submerged ferments.
+
+Respond ONLY with valid JSON conforming to this schema; no preamble, no code fences:
+{
+  "reply": "string",
+  "actions": [ { "type": "...", ...fields } ]
+}"""
+
+
+def _format_history(history: list[dict]) -> str:
+    """Render the message history as a labelled transcript.
+
+    The CLI transport flattens multi-message inputs into one prompt, so role
+    attribution has to be carried as text rather than via the messages array.
+    """
+    lines = []
+    for msg in history:
+        speaker = "User" if msg.get("role") == "user" else "Hearth"
+        lines.append(f"{speaker}: {msg.get('content', '')}")
+    return "\n".join(lines) if lines else "(no messages yet)"
+
+
+def chat_turn(history: list[dict], context: str, page: str) -> ChatTurnResult:
+    """One conversational turn. `history` is a list of {"role", "content"} dicts
+    (oldest first, already capped by the caller). Returns parsed reply + actions."""
+    system = f"{CHAT_SYSTEM}\n\n--- CURRENT PAGE: {page} ---\n{context}"
+    user_message = (
+        f"Conversation so far:\n{_format_history(history)}\n\n"
+        "Reply to the most recent User message. Respond ONLY with the JSON object."
+    )
+    response = get_client().messages.create(
+        model=MODEL_FAST,
+        max_tokens=2048,
+        system=system,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    text_parts = [
+        block.text for block in response.content if getattr(block, "type", None) == "text"
+    ]
+    if not text_parts:
+        raise ValueError("LLM returned no text content")
+    raw = _extract_json("".join(text_parts))
+    return ChatTurnResult.model_validate(raw)
