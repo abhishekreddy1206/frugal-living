@@ -1,8 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { captureVideo, deleteContentItem, getContentFeed } from "@/lib/api";
-import type { ContentItem } from "@/lib/types";
+import {
+  captureVideo,
+  deleteContentItem,
+  getContentFeed,
+  getRecipeSuggestions,
+} from "@/lib/api";
+import type { ContentItem, RecipeSuggestion } from "@/lib/types";
 
 type Capture =
   | { kind: "idle" }
@@ -11,15 +16,19 @@ type Capture =
 
 export default function WatchPage() {
   const [items, setItems] = useState<ContentItem[]>([]);
+  const [suggestions, setSuggestions] = useState<RecipeSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [url, setUrl] = useState("");
   const [capture, setCapture] = useState<Capture>({ kind: "idle" });
 
   useEffect(() => {
-    getContentFeed()
-      .then((feed) => setItems(feed.items))
-      .catch(() => {
-        /* feed stays empty */
+    Promise.all([
+      getContentFeed().catch(() => ({ items: [], count: 0 })),
+      getRecipeSuggestions().catch(() => ({ suggestions: [], pantry_size: 0 })),
+    ])
+      .then(([feed, sugg]) => {
+        setItems(feed.items);
+        setSuggestions(sugg.suggestions);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -92,6 +101,20 @@ export default function WatchPage() {
       </form>
 
       <div className="rule-fade mb-8" />
+
+      {!loading && suggestions.length > 0 && (
+        <section className="mb-10">
+          <p className="eyebrow text-clay">Cook from your pantry</p>
+          <p className="mt-1 mb-4 text-[13px] text-ink-soft">
+            Saved videos that use what you have on hand.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {suggestions.map((s) => (
+              <SuggestionCard key={s.id} suggestion={s} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* feed */}
       {loading ? (
@@ -173,6 +196,36 @@ function VideoCard({
         </div>
       </div>
     </article>
+  );
+}
+
+function SuggestionCard({ suggestion }: { suggestion: RecipeSuggestion }) {
+  return (
+    <a
+      href={suggestion.url ?? "#"}
+      target="_blank"
+      rel="noreferrer"
+      className="group overflow-hidden rounded-xl border border-clay/25 bg-raised shadow-warm transition-all hover:-translate-y-0.5 hover:shadow-warm-lg"
+    >
+      <div className="relative aspect-video bg-crust">
+        {suggestion.thumbnail_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={suggestion.thumbnail_url}
+            alt={suggestion.title}
+            className="h-full w-full object-cover"
+          />
+        )}
+      </div>
+      <div className="p-4">
+        <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-ink">
+          {suggestion.title}
+        </h3>
+        <p className="mt-1.5 text-[12px] font-medium text-clay-deep">
+          {suggestion.match_reason}
+        </p>
+      </div>
+    </a>
   );
 }
 

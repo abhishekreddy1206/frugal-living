@@ -36,6 +36,7 @@ from functools import lru_cache
 from types import SimpleNamespace
 
 from app.schemas.ai import ChatTurnResult
+from app.schemas.content import VideoIngredients
 from app.schemas.food import (
     AIBriefing,
     AIWeekPlan,
@@ -725,3 +726,49 @@ def chat_turn(history: list[dict], context: str, page: str) -> ChatTurnResult:
         raise ValueError("LLM returned no text content")
     raw = _extract_json("".join(text_parts))
     return ChatTurnResult.model_validate(raw)
+
+
+# ---------- Video ingredient extraction ----------
+
+# v0.1 — initial video-ingredient extraction prompt
+VIDEO_INGREDIENTS_SYSTEM = """You identify the food ingredients a cooking video uses.
+
+You are given a YouTube video's title, the uploader's tags, and its description. Decide \
+whether it is a cooking/recipe video, and if so, list the ingredients a cook would need.
+
+Rules:
+- is_recipe_video: true ONLY if the video teaches cooking a dish or recipe. False for \
+non-cooking content (vlogs, hauls, budgeting/finance tips, product reviews, etc.).
+- ingredients: common ingredient names (e.g. "chicken", "olive oil", "garlic"). Lowercase, \
+singular where natural. Only ingredients actually used in the dish — never equipment, \
+never serving suggestions. Empty list when is_recipe_video is false.
+- dish_name: the name of the dish if clear, otherwise null.
+- Do not invent ingredients the text does not support.
+
+Respond ONLY with valid JSON conforming to this schema; no preamble, no code fences:
+{ "is_recipe_video": boolean, "dish_name": "string | null", "ingredients": ["string", ...] }"""
+
+
+def extract_video_ingredients(
+    title: str, description: str, youtube_tags: list[str]
+) -> VideoIngredients:
+    """Extract a video's ingredient list + recipe-video classification from its text."""
+    tags_line = ", ".join(youtube_tags) if youtube_tags else "(none)"
+    user_message = (
+        f"Title: {title}\n\n"
+        f"Uploader tags: {tags_line}\n\n"
+        f"Description:\n{description or '(no description)'}"
+    )
+    response = get_client().messages.create(
+        model=MODEL_FAST,
+        max_tokens=1024,
+        system=VIDEO_INGREDIENTS_SYSTEM,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    text_parts = [
+        block.text for block in response.content if getattr(block, "type", None) == "text"
+    ]
+    if not text_parts:
+        raise ValueError("LLM returned no text content")
+    raw = _extract_json("".join(text_parts))
+    return VideoIngredients.model_validate(raw)

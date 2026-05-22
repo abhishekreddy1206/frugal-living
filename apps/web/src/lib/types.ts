@@ -285,3 +285,24 @@ export interface ChatTurnResponse {
   reply: string;
   actions: ActionResult[];
 }
+
+// ---------- Recipe suggestions ----------
+
+export interface RecipeSuggestion {
+  id: string;
+  provider: string;
+  external_id: string;
+  title: string;
+  url: string | null;
+  author: string | null;
+  thumbnail_url: string | null;
+  duration_seconds: number | null;
+  match_score: number;
+  matched_ingredients: string[];
+  match_reason: string;
+}
+
+export interface RecipeSuggestionsResponse {
+  suggestions: RecipeSuggestion[];
+  pantry_size: number;
+}

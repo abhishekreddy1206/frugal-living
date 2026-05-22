@@ -1,4 +1,5 @@
 """Pydantic request/response schemas for the content module."""
+
 from __future__ import annotations
 
 import uuid
@@ -38,3 +39,38 @@ class ContentItemRead(BaseModel):
 class FeedResponse(BaseModel):
     items: list[ContentItemRead]
     count: int
+
+
+class VideoIngredients(BaseModel):
+    """LLM output — ingredients extracted from a video's text."""
+
+    is_recipe_video: bool
+    dish_name: str | None = None
+    ingredients: list[str] = Field(default_factory=list)
+
+
+class RecipeSuggestion(BaseModel):
+    """A saved video ranked by pantry fit. Built by keyword in the router."""
+
+    id: uuid.UUID
+    provider: str
+    external_id: str
+    title: str
+    url: str | None
+    author: str | None
+    thumbnail_url: str | None
+    duration_seconds: int | None
+    match_score: float
+    matched_ingredients: list[str]
+    match_reason: str
+
+
+class RecipeSuggestionsResponse(BaseModel):
+    suggestions: list[RecipeSuggestion]
+    pantry_size: int
+
+
+class EnrichResponse(BaseModel):
+    enriched: int
+    failed: int
+    remaining: int

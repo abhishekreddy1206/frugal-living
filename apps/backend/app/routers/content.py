@@ -1,4 +1,5 @@
 """Content module — capture & feed external content (YouTube now; blog/Reddit later)."""
+
 from __future__ import annotations
 
 import logging
@@ -12,9 +13,17 @@ from sqlalchemy.orm import Session
 from app.auth import CurrentHousehold, CurrentUser
 from app.db import get_db
 from app.models.content import ContentItem
-from app.schemas.content import CaptureRequest, ContentItemRead, FeedResponse
+from app.schemas.content import (
+    CaptureRequest,
+    ContentItemRead,
+    EnrichResponse,
+    FeedResponse,
+    RecipeSuggestion,
+    RecipeSuggestionsResponse,
+)
+from app.services.content import enrich_content_item, enrich_pending, rank_videos_for_pantry
 from app.services.events import emit_event
-from app.services.youtube import fetch_youtube_metadata, parse_video_id
+from app.services.youtube import parse_video_id, resolve_video_metadata
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -36,15 +45,53 @@ def feed(
     query = db.query(ContentItem).filter(ContentItem.deleted_at.is_(None))
     if topic:
         query = query.filter(ContentItem.topic == topic)
-    rows = (
-        query.order_by(ContentItem.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-        .all()
-    )
+    rows = query.order_by(ContentItem.created_at.desc()).limit(limit).offset(offset).all()
     return FeedResponse(
         items=[ContentItemRead.model_validate(r) for r in rows],
         count=len(rows),
+    )
+
+
+@router.get("/recipe-suggestions", response_model=RecipeSuggestionsResponse)
+def recipe_suggestions(
+    household: CurrentHousehold,
+    db: Annotated[Session, Depends(get_db)],
+    limit: int = Query(12, ge=1, le=50, description="Max suggestions to return."),
+) -> RecipeSuggestionsResponse:
+    """Saved cooking videos ranked by how well they fit the household's pantry."""
+    ranked, pantry_size = rank_videos_for_pantry(db, household=household, limit=limit)
+    return RecipeSuggestionsResponse(
+        suggestions=[
+            RecipeSuggestion(
+                id=r.item.id,
+                provider=r.item.provider,
+                external_id=r.item.external_id,
+                title=r.item.title,
+                url=r.item.url,
+                author=r.item.author,
+                thumbnail_url=r.item.thumbnail_url,
+                duration_seconds=r.item.duration_seconds,
+                match_score=r.match_score,
+                matched_ingredients=r.matched_ingredients,
+                match_reason=r.match_reason,
+            )
+            for r in ranked
+        ],
+        pantry_size=pantry_size,
+    )
+
+
+@router.post("/enrich", response_model=EnrichResponse)
+def enrich_pending_endpoint(
+    db: Annotated[Session, Depends(get_db)],
+    limit: int = Query(20, ge=1, le=100, description="Max items to enrich this call."),
+) -> EnrichResponse:
+    """Backfill enrichment for videos saved before this feature. Bounded by `limit`;
+    re-call while `remaining > 0`."""
+    result = enrich_pending(db, limit=limit)
+    db.commit()
+    return EnrichResponse(
+        enriched=result.enriched, failed=result.failed, remaining=result.remaining
     )
 
 
@@ -55,22 +102,20 @@ def capture(
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> ContentItemRead:
-    """Capture a YouTube video by URL into the content feed.
+    """Capture a YouTube video by URL into the shared content feed, then enrich it.
 
-    The feed is a shared, global catalog (see ContentItem) — captured items have
-    no household_id and are visible to every household. The emitted
-    `content.item.captured` event records *who* captured the item (household +
-    user) as an activity record; it does not imply per-household ownership.
+    Metadata resolves via the YouTube Data API (one call, rich) with an oEmbed
+    fallback. Enrichment (ingredient extraction) is best-effort — a failure logs
+    and leaves the item un-enriched; the capture still succeeds.
     """
     if parse_video_id(request.url) is None:
         raise HTTPException(422, "Only YouTube video URLs are supported right now")
 
     try:
-        meta = fetch_youtube_metadata(request.url)
+        meta = resolve_video_metadata(request.url)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
 
-    # Dedup on the unique (provider, external_id) index.
     existing = (
         db.query(ContentItem)
         .filter(
@@ -95,6 +140,10 @@ def capture(
         author=meta.author,
         thumbnail_url=meta.thumbnail_url,
         topic=request.topic,
+        body=meta.description,
+        duration_seconds=meta.duration_seconds,
+        published_at=meta.published_at,
+        metadata_={"youtube_tags": meta.youtube_tags},
     )
     db.add(item)
     db.flush()
@@ -113,6 +162,11 @@ def capture(
             "topic": request.topic,
         },
     )
+
+    # Best-effort enrichment — `body` is already set, so this makes no extra
+    # YouTube call; a failure inside is caught and never fails the capture.
+    enrich_content_item(db, item)
+
     db.commit()
     db.refresh(item)
     logger.info("content item captured: external_id=%s topic=%s", meta.video_id, request.topic)
