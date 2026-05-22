@@ -55,3 +55,13 @@ def test_chat_turn_raises_on_empty_response(monkeypatch):
     fake.messages.create.return_value = SimpleNamespace(content=[])
     with pytest.raises(ValueError, match="no text content"):
         llm.chat_turn([{"role": "user", "content": "hi"}], "", "home")
+
+
+def test_chat_system_prompt_describes_inventory_actions():
+    from app.services.llm import CHAT_SYSTEM
+
+    assert "add_inventory_item" in CHAT_SYSTEM
+    assert "update_inventory_item" in CHAT_SYSTEM
+    assert "remove_inventory_item" in CHAT_SYSTEM
+    # The page-scoping rule keeps food vs. inventory actions separate.
+    assert "inventory" in CHAT_SYSTEM.lower()
