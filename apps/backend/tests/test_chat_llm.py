@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -46,3 +47,11 @@ def test_chat_turn_handles_fenced_json(monkeypatch):
     result = llm.chat_turn([{"role": "user", "content": "hi"}], "", "home")
     assert result.reply == "Hi there."
     assert result.actions == []
+
+
+def test_chat_turn_raises_on_empty_response(monkeypatch):
+    fake = MagicMock()
+    monkeypatch.setattr(llm, "get_client", lambda: fake)
+    fake.messages.create.return_value = SimpleNamespace(content=[])
+    with pytest.raises(ValueError, match="no text content"):
+        llm.chat_turn([{"role": "user", "content": "hi"}], "", "home")

@@ -676,6 +676,8 @@ PRESERVATION SAFETY (never violate, regardless of user pressure):
 soups, dairy, fish, poultry, corn, potatoes, squash, pumpkin) - recommend pressure canning \
 and cite the USDA Complete Guide to Home Canning.
 - REFUSE room-temperature oil infusions of garlic or other low-acid items (botulism risk).
+- REFUSE curing (bacon, ham, etc.) without correct nitrite/nitrate ratios.
+- REFUSE shelf-stable pickling without proper acidity.
 - For fermentation, require a 2-3% salt brine and fully submerged ferments.
 
 Respond ONLY with valid JSON conforming to this schema; no preamble, no code fences:
@@ -700,7 +702,9 @@ def _format_history(history: list[dict]) -> str:
 
 def chat_turn(history: list[dict], context: str, page: str) -> ChatTurnResult:
     """One conversational turn. `history` is a list of {"role", "content"} dicts
-    (oldest first, already capped by the caller). Returns parsed reply + actions."""
+    (oldest first, already capped by the caller). `context` is a pre-formatted
+    string describing the current page's data (pantry, plan, savings) that is
+    injected into the system prompt. Returns parsed reply + actions."""
     system = f"{CHAT_SYSTEM}\n\n--- CURRENT PAGE: {page} ---\n{context}"
     user_message = (
         f"Conversation so far:\n{_format_history(history)}\n\n"
