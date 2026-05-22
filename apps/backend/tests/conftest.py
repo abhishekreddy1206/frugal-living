@@ -8,6 +8,7 @@ rolled back at teardown, so tests don't leak rows.
 The starter ingredient catalog and dev household are seeded once at the start of
 the session (idempotent) so resolver tests have a stable backdrop to query against.
 """
+
 from __future__ import annotations
 
 import pytest

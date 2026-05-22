@@ -1,4 +1,5 @@
 """AI-tier request/response schemas — chat conversations and turns."""
+
 from __future__ import annotations
 
 import uuid

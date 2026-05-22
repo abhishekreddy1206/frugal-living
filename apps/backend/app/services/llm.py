@@ -21,6 +21,7 @@ Model selection by job (see CLAUDE.md "LLM patterns"):
 
 Prompts are versioned inline with a comment; move to prompts/<name>_v<N>.md when stable.
 """
+
 from __future__ import annotations
 
 import base64
@@ -34,6 +35,7 @@ import tempfile
 from functools import lru_cache
 from types import SimpleNamespace
 
+from app.schemas.ai import ChatTurnResult
 from app.schemas.food import (
     AIBriefing,
     AIWeekPlan,
@@ -46,7 +48,6 @@ from app.schemas.food import (
     StretchSuggestions,
     WeekPlanConstraints,
 )
-from app.schemas.ai import ChatTurnResult
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +84,11 @@ def _run_claude_cli(prompt: str, *, model: str, read_dir: str | None = None) -> 
     args = [
         _claude_bin(),
         "-p",
-        "--output-format", "json",
+        "--output-format",
+        "json",
         "--no-session-persistence",
-        "--model", model,
+        "--model",
+        model,
     ]
     if read_dir is not None:
         args += ["--allowedTools", "Read", "--add-dir", read_dir]
@@ -270,9 +273,7 @@ Respond ONLY with valid JSON conforming to this schema; no preamble, no code fen
 }"""
 
 
-def extract_pantry_from_image(
-    image_base64: str, media_type: str = "image/jpeg"
-) -> ExtractedPantry:
+def extract_pantry_from_image(image_base64: str, media_type: str = "image/jpeg") -> ExtractedPantry:
     """Photo → structured pantry items. Sonnet 4.6 vision + Pydantic validation."""
     response = get_client().messages.create(
         model=MODEL_VISION,
@@ -310,6 +311,7 @@ def extract_pantry_from_image(
 
 
 # ---------- Stubs awaiting later sprints ----------
+
 
 def extract_receipt(image_base64: str, media_type: str = "image/jpeg") -> dict:
     """Receipt photo -> store, date, line items, total. Implement alongside Sprint 1.5."""
@@ -483,12 +485,14 @@ def _format_week_plan_constraints(pantry: list[PantrySnapshotItem], c: WeekPlanC
         bits.append(f"Dietary constraints (must respect all): {', '.join(c.dietary_constraints)}.")
     if c.notes:
         bits.append(f"User notes: {c.notes}")
-    return "\n".join([
-        "Pantry snapshot:",
-        _format_pantry_for_prompt(pantry),
-        "",
-        *bits,
-    ])
+    return "\n".join(
+        [
+            "Pantry snapshot:",
+            _format_pantry_for_prompt(pantry),
+            "",
+            *bits,
+        ]
+    )
 
 
 def generate_weekly_plan(
@@ -605,10 +609,8 @@ Respond ONLY with JSON conforming to:
 
 def preservation_advice(request: PreservationAdviceRequest) -> PreservationAdvice:
     """Ask Claude for tailored preservation guidance. Sonnet is sufficient."""
-    user_message = (
-        f"Method requested: {request.method}\n"
-        f"Ingredient: {request.ingredient_name}"
-        + (f"\nQuantity: {request.quantity} {request.unit or ''}".rstrip() if request.quantity else "")
+    user_message = f"Method requested: {request.method}\nIngredient: {request.ingredient_name}" + (
+        f"\nQuantity: {request.quantity} {request.unit or ''}".rstrip() if request.quantity else ""
     )
     response = get_client().messages.create(
         model=MODEL_FAST,

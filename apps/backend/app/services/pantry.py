@@ -10,6 +10,7 @@ Unit conversion is intentionally absent in v1 — units must match (case-insensi
 for the decrement to apply. Mismatches still count toward coverage but skip the
 arithmetic. The trade-off is conservative correctness over false confidence.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -97,9 +98,7 @@ def consume_for_recipe(
     if not ingredients:
         return CookResult(matched_count=0, total_ingredients=0)
 
-    serving_ratio = (
-        servings_cooked / recipe.servings if recipe.servings else 1.0
-    )
+    serving_ratio = servings_cooked / recipe.servings if recipe.servings else 1.0
 
     result = CookResult(matched_count=0, total_ingredients=len(ingredients))
     estimated_value_total = 0.0
@@ -127,11 +126,7 @@ def consume_for_recipe(
 
         result.matched_count += 1
 
-        need = (
-            float(ri.quantity) * serving_ratio
-            if ri.quantity is not None
-            else None
-        )
+        need = float(ri.quantity) * serving_ratio if ri.quantity is not None else None
 
         for pantry_item in candidates:
             if need is None or need <= 0:
@@ -145,9 +140,7 @@ def consume_for_recipe(
             new_qty = available - consumed
             pantry_item.quantity = new_qty
             if pantry_item.estimated_value is not None and available > 0:
-                estimated_value_total += float(pantry_item.estimated_value) * (
-                    consumed / available
-                )
+                estimated_value_total += float(pantry_item.estimated_value) * (consumed / available)
             if new_qty <= 0:
                 pantry_item.deleted_at = datetime.now(UTC)
             result.decremented_item_ids.append(pantry_item.id)
@@ -164,9 +157,7 @@ class PantryItemNotFound(Exception):
     """Raised when a pantry item id can't be resolved for the household."""
 
 
-def _load_owned_item(
-    db: Session, household: Household, pantry_item_id: uuid.UUID
-) -> PantryItem:
+def _load_owned_item(db: Session, household: Household, pantry_item_id: uuid.UUID) -> PantryItem:
     item = db.get(PantryItem, pantry_item_id)
     if item is None or item.household_id != household.id or item.deleted_at is not None:
         raise PantryItemNotFound(str(pantry_item_id))

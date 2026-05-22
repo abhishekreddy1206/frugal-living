@@ -6,6 +6,7 @@ one Sonnet call that returns a reply plus a list of actions; actions execute
 against the existing food services and emit core.events. The reply states intent;
 per-action ActionResults carry the confirmed outcome.
 """
+
 from __future__ import annotations
 
 import logging
@@ -73,9 +74,7 @@ def normalize_page(raw: str) -> str:
 # ---------- Conversations ----------
 
 
-def get_or_create_conversation(
-    db: Session, *, household: Household, page: str
-) -> Conversation:
+def get_or_create_conversation(db: Session, *, household: Household, page: str) -> Conversation:
     """Return the household's conversation for `page`, creating it if absent."""
     key = normalize_page(page)
     conv = (
@@ -231,11 +230,7 @@ def _do_log_waste(
     name = action.ingredient_name or action.raw_name
     if not name:
         raise _ActionError("missing ingredient name")
-    pid = (
-        _parse_uuid(action.pantry_item_id, "pantry_item_id")
-        if action.pantry_item_id
-        else None
-    )
+    pid = _parse_uuid(action.pantry_item_id, "pantry_item_id") if action.pantry_item_id else None
     request = WasteLogRequest(
         pantry_item_id=pid,
         ingredient_name=name,
@@ -260,9 +255,7 @@ def _do_mark_recipe_cooked(
     if recipe is None:
         raise _ActionError("recipe not found")
     servings = action.servings or recipe.servings
-    result = consume_for_recipe(
-        db, household=household, recipe=recipe, servings_cooked=servings
-    )
+    result = consume_for_recipe(db, household=household, recipe=recipe, servings_cooked=servings)
     emit_event(
         db,
         event_type="food.meal.cooked",
@@ -278,9 +271,7 @@ def _do_mark_recipe_cooked(
             "estimated_value_usd": result.estimated_value_usd,
         },
     )
-    return ActionResult(
-        type=action.type, status="ok", summary=f"Marked {recipe.name} as cooked"
-    )
+    return ActionResult(type=action.type, status="ok", summary=f"Marked {recipe.name} as cooked")
 
 
 def _do_generate_meal_plan(
@@ -384,13 +375,9 @@ def run_chat_turn(
         turn = llm.chat_turn(history, context, page)
     except Exception:  # noqa: BLE001 — LLM output is untrusted; degrade gracefully
         logger.exception("chat_turn failed for conversation %s", conversation.id)
-        turn = ChatTurnResult(
-            reply="I had trouble with that — could you rephrase?", actions=[]
-        )
+        turn = ChatTurnResult(reply="I had trouble with that — could you rephrase?", actions=[])
 
-    results = [
-        _execute_action(db, household=household, user=user, action=a) for a in turn.actions
-    ]
+    results = [_execute_action(db, household=household, user=user, action=a) for a in turn.actions]
 
     assistant_msg = Message(
         conversation_id=conversation.id,
@@ -405,6 +392,4 @@ def run_chat_turn(
     db.add(assistant_msg)
     db.flush()
 
-    return ChatTurnResponse(
-        message_id=assistant_msg.id, reply=turn.reply, actions=results
-    )
+    return ChatTurnResponse(message_id=assistant_msg.id, reply=turn.reply, actions=results)

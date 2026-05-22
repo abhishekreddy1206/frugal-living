@@ -1,10 +1,12 @@
 """Tests for the chat_turn LLM function."""
+
 from __future__ import annotations
 
 import json
-import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+import pytest
 
 from app.services import llm
 
@@ -25,9 +27,7 @@ def test_chat_turn_parses_reply_and_actions(monkeypatch):
             )
         ]
     )
-    result = llm.chat_turn(
-        [{"role": "user", "content": "add rice"}], "PANTRY: (empty)", "pantry"
-    )
+    result = llm.chat_turn([{"role": "user", "content": "add rice"}], "PANTRY: (empty)", "pantry")
     assert result.reply == "Added rice to your pantry."
     assert result.actions[0].type == "add_pantry_item"
     assert result.actions[0].raw_name == "rice"

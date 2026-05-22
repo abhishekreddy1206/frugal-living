@@ -1,4 +1,5 @@
 """Tests for the chat orchestration service."""
+
 from __future__ import annotations
 
 from app.auth import DEV_HOUSEHOLD_ID, DEV_USER_ID

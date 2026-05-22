@@ -1,4 +1,5 @@
 """Tests for the chat schema models."""
+
 from __future__ import annotations
 
 from app.schemas.ai import ChatAction, ChatTurnResult

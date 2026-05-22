@@ -1,4 +1,5 @@
 """AI module — Claude conversations (chat sidebar), voice, daily briefings."""
+
 from __future__ import annotations
 
 import uuid
@@ -102,9 +103,7 @@ def todays_briefing(
     db: Annotated[Session, Depends(get_db)],
 ) -> BriefingRead:
     """Return today's briefing, generating it on demand if missing."""
-    briefing = get_or_generate_today(
-        db, household=household, user_id=user.id, force=False
-    )
+    briefing = get_or_generate_today(db, household=household, user_id=user.id, force=False)
     db.commit()
     return BriefingRead.model_validate(briefing)
 
@@ -116,9 +115,7 @@ def regenerate_briefing(
     db: Annotated[Session, Depends(get_db)],
 ) -> BriefingRead:
     """Force a fresh briefing — soft-deletes the existing today and regenerates."""
-    briefing = get_or_generate_today(
-        db, household=household, user_id=user.id, force=True
-    )
+    briefing = get_or_generate_today(db, household=household, user_id=user.id, force=True)
     db.commit()
     return BriefingRead.model_validate(briefing)
 
