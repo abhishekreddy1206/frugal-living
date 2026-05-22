@@ -36,6 +36,7 @@ from functools import lru_cache
 from types import SimpleNamespace
 
 from app.schemas.ai import ChatTurnResult
+from app.schemas.community import ExtractedInventory
 from app.schemas.content import VideoIngredients
 from app.schemas.food import (
     AIBriefing,
@@ -309,6 +310,80 @@ def extract_pantry_from_image(image_base64: str, media_type: str = "image/jpeg")
 
     raw = _extract_json("".join(text_parts))
     return ExtractedPantry.model_validate(raw)
+
+
+# v0.1 — initial inventory-extraction prompt
+INVENTORY_EXTRACT_SYSTEM = """You are a household inventory assistant. The user will send a photo \
+of durable household possessions (a shelf of board games, a tool pegboard, a bookcase, sports \
+gear). Identify every distinct item and return a structured inventory.
+
+Rules:
+- One entry per distinct item. If you see 8 identical folding chairs, return one entry with \
+quantity=8.
+- Use the most specific name you can read ("DeWalt 20V drill" beats "drill"; "Catan" beats \
+"board game").
+- category MUST be exactly one of: tools, games, books, kitchen, outdoor, electronics, \
+furniture, kids, sports, other. Pick the closest fit; use "other" only when nothing fits.
+- tags: 1-4 short lowercase keywords for finer search (e.g. "cordless", "board game", "6 players").
+- condition: one of new, like_new, good, fair, poor — your best visual estimate, or null if unclear.
+- estimated_value_usd: rough US replacement cost, or null if you cannot estimate.
+- confidence: your subjective certainty 0..1 that the item exists as described.
+- Do NOT include food, packaging, or background objects.
+
+Respond ONLY with valid JSON conforming to this schema; no preamble, no code fences:
+{
+  "items": [
+    {
+      "name": "string",
+      "category": "string",
+      "tags": ["string", ...],
+      "quantity": number,
+      "condition": "string | null",
+      "estimated_value_usd": number | null,
+      "confidence": number,
+      "notes": "string | null"
+    }
+  ]
+}"""
+
+
+def extract_items_from_image(
+    image_base64: str, media_type: str = "image/jpeg"
+) -> ExtractedInventory:
+    """Photo → structured inventory items. Sonnet 4.6 vision + Pydantic validation."""
+    response = get_client().messages.create(
+        model=MODEL_VISION,
+        max_tokens=2048,
+        system=INVENTORY_EXTRACT_SYSTEM,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": image_base64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": "Extract every durable household item visible in this photo.",
+                    },
+                ],
+            }
+        ],
+    )
+
+    text_parts = [
+        block.text for block in response.content if getattr(block, "type", None) == "text"
+    ]
+    if not text_parts:
+        raise ValueError("LLM returned no text content")
+
+    raw = _extract_json("".join(text_parts))
+    return ExtractedInventory.model_validate(raw)
 
 
 # ---------- Stubs awaiting later sprints ----------
