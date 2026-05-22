@@ -23,6 +23,10 @@ const SECTIONS: NavSection[] = [
     ],
   },
   {
+    title: "Household",
+    items: [{ href: "/inventory", label: "Inventory" }],
+  },
+  {
     title: "Library",
     items: [{ href: "/watch", label: "Watch" }],
   },
