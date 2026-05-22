@@ -13,8 +13,9 @@ from app.auth import CurrentHousehold, CurrentUser
 from app.db import get_db
 from app.models.content import ContentItem
 from app.schemas.content import CaptureRequest, ContentItemRead, FeedResponse
+from app.services.content import enrich_content_item
 from app.services.events import emit_event
-from app.services.youtube import fetch_youtube_metadata, parse_video_id
+from app.services.youtube import parse_video_id, resolve_video_metadata
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -55,22 +56,20 @@ def capture(
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> ContentItemRead:
-    """Capture a YouTube video by URL into the content feed.
+    """Capture a YouTube video by URL into the shared content feed, then enrich it.
 
-    The feed is a shared, global catalog (see ContentItem) — captured items have
-    no household_id and are visible to every household. The emitted
-    `content.item.captured` event records *who* captured the item (household +
-    user) as an activity record; it does not imply per-household ownership.
+    Metadata resolves via the YouTube Data API (one call, rich) with an oEmbed
+    fallback. Enrichment (ingredient extraction) is best-effort — a failure logs
+    and leaves the item un-enriched; the capture still succeeds.
     """
     if parse_video_id(request.url) is None:
         raise HTTPException(422, "Only YouTube video URLs are supported right now")
 
     try:
-        meta = fetch_youtube_metadata(request.url)
+        meta = resolve_video_metadata(request.url)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
 
-    # Dedup on the unique (provider, external_id) index.
     existing = (
         db.query(ContentItem)
         .filter(
@@ -95,6 +94,10 @@ def capture(
         author=meta.author,
         thumbnail_url=meta.thumbnail_url,
         topic=request.topic,
+        body=meta.description,
+        duration_seconds=meta.duration_seconds,
+        published_at=meta.published_at,
+        metadata_={"youtube_tags": meta.youtube_tags},
     )
     db.add(item)
     db.flush()
@@ -113,6 +116,11 @@ def capture(
             "topic": request.topic,
         },
     )
+
+    # Best-effort enrichment — `body` is already set, so this makes no extra
+    # YouTube call; a failure inside is caught and never fails the capture.
+    enrich_content_item(db, item)
+
     db.commit()
     db.refresh(item)
     logger.info("content item captured: external_id=%s topic=%s", meta.video_id, request.topic)

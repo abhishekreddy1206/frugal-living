@@ -9,7 +9,7 @@ from app.main import app
 from app.models.content import ContentItem
 from app.models.core import Event
 from app.routers import content as content_router
-from app.services.youtube import YouTubeMetadata, parse_video_id
+from app.services.youtube import VideoMetadata, parse_video_id
 
 VIDEO_A = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 VIDEO_B = "https://youtu.be/9bZkp7q19f0"
@@ -23,21 +23,23 @@ def client():
 
 @pytest.fixture
 def mock_youtube(monkeypatch):
-    """Replace the network oEmbed call with deterministic metadata per video id."""
+    """Deterministic metadata + no-op enrichment, so capture tests stay offline/fast."""
 
-    def fake_fetch(url: str) -> YouTubeMetadata:
+    def fake_resolve(url: str) -> VideoMetadata:
         video_id = parse_video_id(url)
         assert video_id is not None
-        return YouTubeMetadata(
+        return VideoMetadata(
             video_id=video_id,
             url=f"https://www.youtube.com/watch?v={video_id}",
             title=f"Frugal cooking — {video_id}",
             author="Test Channel",
             thumbnail_url=f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+            description="A simple frugal recipe.",
         )
 
-    monkeypatch.setattr(content_router, "fetch_youtube_metadata", fake_fetch)
-    return fake_fetch
+    monkeypatch.setattr(content_router, "resolve_video_metadata", fake_resolve)
+    monkeypatch.setattr(content_router, "enrich_content_item", lambda db, item: True)
+    return fake_resolve
 
 
 def test_capture_creates_item_and_emits_event(client, mock_youtube):
@@ -81,10 +83,10 @@ def test_capture_accepts_a_valid_non_default_topic(client, mock_youtube):
 
 
 def test_capture_propagates_unresolvable_video(client, monkeypatch):
-    def boom(url: str) -> YouTubeMetadata:
+    def boom(url: str):
         raise ValueError("YouTube could not resolve that video (private or removed?)")
 
-    monkeypatch.setattr(content_router, "fetch_youtube_metadata", boom)
+    monkeypatch.setattr(content_router, "resolve_video_metadata", boom)
     resp = client.post("/api/v1/content/capture", json={"url": VIDEO_A})
     assert resp.status_code == 422
     assert "private or removed" in resp.json()["detail"]
