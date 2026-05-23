@@ -17,10 +17,12 @@ class Settings(BaseSettings):
     # Voice (optional)
     openai_api_key: str = ""
 
-    # Auth — session cookie
+    # Auth — session cookie.
+    # samesite: "lax" in dev/same-site prod; "none" if API is on a different registrable domain.
+    # secure: False locally; True in prod (and required when samesite="none").
     session_cookie_name: str = "hearth_session"
-    session_cookie_samesite: str = "lax"  # "lax" in dev/same-site prod; "none" if API on a different registrable domain
-    session_cookie_secure: bool = False  # False in local; True in prod (and required when samesite="none")
+    session_cookie_samesite: str = "lax"
+    session_cookie_secure: bool = False
     session_max_age_days: int = 30
 
     # Auth — login throttling (per-email)

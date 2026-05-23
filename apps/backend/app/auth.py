@@ -1,108 +1,100 @@
 """
-Dev-mode auth stub. Per CLAUDE.md: real auth (Clerk/Auth.js) plugs in pre-launch.
+Auth dependencies for FastAPI.
 
-For now: a single fixture User + Household + HouseholdMember + Subscription
-is seeded on app startup (idempotent). FastAPI dependencies resolve every
-request to that household. Real auth replaces these two dependencies and the
-seed call goes away.
+The two dependencies below are the single seam between the rest of the app and
+the auth implementation. `CurrentUser` / `CurrentHousehold` keep their names
+and types, so every existing router and service is untouched.
+
+A valid session is required: the `hearth_session` cookie must hash to a row in
+`core.sessions` that is not revoked and not expired. `get_current_household`
+resolves to the session's `active_household_id`, falling back to (and persisting)
+the user's first membership.
+
+DEV_USER_ID / DEV_HOUSEHOLD_ID remain as constants — the test harness
+(tests/conftest.py) seeds rows with these stable IDs and installs
+`app.dependency_overrides` so every existing test acts as that fixture.
 """
 from __future__ import annotations
 
 import uuid
 from typing import Annotated
 
-from fastapi import Depends
-from sqlalchemy.orm import Session
+from fastapi import Cookie, Depends, HTTPException
+from sqlalchemy.orm import Session as DbSession
 
-from app.db import SessionLocal, get_db
-from app.models.core import Household, HouseholdMember, Subscription, User
+from app.config import settings
+from app.db import get_db
+from app.models.core import Household, HouseholdMember, User
+from app.services.auth.sessions import get_session_by_raw_token
 from app.services.ingredients import seed_starter_ingredients
 from app.services.streaks import seed_badge_definitions
 
-# Stable UUIDs so the dev household is the same across restarts and migrations.
+# Stable UUIDs for the test fixture user/household. They live here so the ~30
+# test files that import `from app.auth import DEV_USER_ID, DEV_HOUSEHOLD_ID`
+# keep working unchanged. The rows themselves are seeded by tests/conftest.py.
 DEV_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 DEV_HOUSEHOLD_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
-
 DEV_USER_EMAIL = "dev@frugal-living.local"
 
 
-def seed_dev_fixtures() -> None:
-    """Idempotent: create the dev user/household/membership/subscription if absent."""
-    with SessionLocal() as db:
-        user = db.get(User, DEV_USER_ID)
-        if user is None:
-            user = User(
-                id=DEV_USER_ID,
-                email=DEV_USER_EMAIL,
-                display_name="Dev User",
-            )
-            db.add(user)
-            db.flush()
+def seed_reference_data(db: DbSession) -> None:
+    """Seed global, not-user-specific reference data on app startup.
 
-        household = db.get(Household, DEV_HOUSEHOLD_ID)
-        if household is None:
-            household = Household(
-                id=DEV_HOUSEHOLD_ID,
-                name="Dev Household",
-                size=2,
-            )
-            db.add(household)
-            db.flush()
-
-        membership = (
-            db.query(HouseholdMember)
-            .filter_by(user_id=DEV_USER_ID, household_id=DEV_HOUSEHOLD_ID)
-            .one_or_none()
-        )
-        if membership is None:
-            db.add(
-                HouseholdMember(
-                    user_id=DEV_USER_ID,
-                    household_id=DEV_HOUSEHOLD_ID,
-                    role="owner",
-                )
-            )
-
-        subscription = (
-            db.query(Subscription).filter_by(user_id=DEV_USER_ID).one_or_none()
-        )
-        if subscription is None:
-            db.add(
-                Subscription(
-                    user_id=DEV_USER_ID,
-                    plan="suite",
-                    status="active",
-                    tier_a_enabled=True,
-                    tier_b_enabled=True,
-                )
-            )
-        else:
-            # Idempotently enable Tier B on pre-existing dev databases.
-            subscription.tier_b_enabled = True
-
-        db.commit()
-
-        seed_starter_ingredients(db)
-        seed_badge_definitions(db)
+    Replaces the old `seed_dev_fixtures` — the dev user/household auto-seed is
+    gone; new users sign up through the UI.
+    """
+    seed_starter_ingredients(db)
+    seed_badge_definitions(db)
 
 
-def get_current_user(db: Annotated[Session, Depends(get_db)]) -> User:
-    user = db.get(User, DEV_USER_ID)
-    if user is None:
-        raise RuntimeError(
-            "Dev user not seeded. Ensure seed_dev_fixtures() runs on startup."
-        )
+def get_current_user(
+    db: Annotated[DbSession, Depends(get_db)],
+    session_token: Annotated[str | None, Cookie(alias=settings.session_cookie_name)] = None,
+) -> User:
+    """Resolve the logged-in user from the session cookie. 401 if no valid session."""
+    if not session_token:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    sess = get_session_by_raw_token(db, session_token)
+    if sess is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    user = db.get(User, sess.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="not authenticated")
     return user
 
 
 def get_current_household(
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[DbSession, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+    session_token: Annotated[str | None, Cookie(alias=settings.session_cookie_name)] = None,
 ) -> Household:
-    household = db.get(Household, DEV_HOUSEHOLD_ID)
-    if household is None:
-        raise RuntimeError(
-            "Dev household not seeded. Ensure seed_dev_fixtures() runs on startup."
-        )
+    """Resolve the active household for the current session.
+
+    Falls back to the user's first HouseholdMember and persists it on the
+    session as the active household.
+    """
+    # Look up the session again (already validated by get_current_user).
+    sess = get_session_by_raw_token(db, session_token) if session_token else None
+    if sess is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
+
+    if sess.active_household_id is not None:
+        household = db.get(Household, sess.active_household_id)
+        if household is not None:
+            return household
+
+    membership = (
+        db.query(HouseholdMember)
+        .filter(HouseholdMember.user_id == user.id)
+        .order_by(HouseholdMember.created_at)
+        .first()
+    )
+    if membership is None:
+        raise HTTPException(status_code=400, detail="user has no household")
+    sess.active_household_id = membership.household_id
+    db.flush()
+    household = db.get(Household, membership.household_id)
+    assert household is not None
     return household
 
 

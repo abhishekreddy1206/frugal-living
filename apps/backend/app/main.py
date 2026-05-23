@@ -3,13 +3,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.auth import seed_dev_fixtures
+from app.auth import seed_reference_data
+from app.db import SessionLocal
 from app.routers import ai, community, content, food, health, tracking
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    seed_dev_fixtures()
+    with SessionLocal() as db:
+        seed_reference_data(db)
+        db.commit()
     yield
 
 
