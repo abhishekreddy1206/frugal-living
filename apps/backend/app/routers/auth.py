@@ -17,12 +17,15 @@ from app.models.core import (
 )
 from app.schemas.auth import (
     HouseholdRead,
+    LoginRequest,
+    LoginResponse,
     SignupRequest,
     SignupResponse,
     UserRead,
 )
 from app.services.auth import sessions as session_svc
-from app.services.auth.passwords import hash_password
+from app.services.auth import throttle as throttle_svc
+from app.services.auth.passwords import hash_password, verify_password
 
 router = APIRouter()
 
@@ -85,4 +88,61 @@ def signup(
     return SignupResponse(
         user=UserRead.model_validate(user),
         household=HouseholdRead.model_validate(household),
+    )
+
+
+@router.post("/login", response_model=LoginResponse)
+def login(
+    request: LoginRequest,
+    response: Response,
+    http_request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> LoginResponse:
+    """Verify credentials, open a session, set the cookie. 401 / 429 on failure."""
+    user = db.query(User).filter(User.email == str(request.email).lower()).one_or_none()
+    if user is None:
+        # Same status as wrong-password to avoid email enumeration.
+        raise HTTPException(status_code=401, detail="invalid email or password")
+    if not user.is_active:
+        raise HTTPException(status_code=401, detail="invalid email or password")
+
+    locked, until = throttle_svc.is_locked(user)
+    if locked:
+        raise HTTPException(
+            status_code=429,
+            detail=f"account locked until {until.isoformat()}",
+        )
+
+    if user.hashed_password is None or not verify_password(
+        request.password, user.hashed_password
+    ):
+        throttle_svc.register_failed_login(db, user)
+        db.commit()
+        raise HTTPException(status_code=401, detail="invalid email or password")
+
+    throttle_svc.reset_throttle(db, user)
+
+    # Default the new session's active household to the user's first membership.
+    membership = (
+        db.query(HouseholdMember)
+        .filter(HouseholdMember.user_id == user.id)
+        .order_by(HouseholdMember.created_at)
+        .first()
+    )
+    active_household_id = membership.household_id if membership else None
+
+    ua, ip = _request_meta(http_request)
+    sess, raw_token = session_svc.create_session(
+        db, user=user, active_household_id=active_household_id, user_agent=ua, ip=ip,
+    )
+    _audit(db, action="auth.login", user_id=user.id, payload={"email": user.email})
+    db.commit()
+
+    session_svc.set_session_cookie(response, raw_token)
+    household = db.get(Household, active_household_id) if active_household_id else None
+    if household is None:
+        raise HTTPException(status_code=400, detail="user has no household")
+    return LoginResponse(
+        user=UserRead.model_validate(user),
+        active_household=HouseholdRead.model_validate(household),
     )
