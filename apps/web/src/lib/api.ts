@@ -1,4 +1,6 @@
 import type {
+  AuthHousehold,
+  AuthUser,
   BadgeAward,
   Briefing,
   ChatTurnResponse,
@@ -6,10 +8,14 @@ import type {
   ContentItem,
   ConversationOpenResponse,
   CookedResponse,
+  CreateInviteResponse,
   InventoryItem,
+  InvitePreview,
   ItemCaptureResponse,
   ItemCategory,
+  LoginResponse,
   MealPlan,
+  MeResponse,
   PantryCaptureResponse,
   PantryItem,
   PlannedMealStatus,
@@ -22,6 +28,7 @@ import type {
   RecipeSuggestionsResponse,
   SavingsRollup,
   ShoppingList,
+  SignupResponse,
   Streak,
   StretchResponse,
   WasteEvent,
@@ -30,12 +37,25 @@ import type {
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+export class AuthError extends Error {
+  constructor(message = "not authenticated") {
+    super(message);
+    this.name = "AuthError";
+  }
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     ...init,
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  if (res.status === 401) {
+    throw new AuthError();
+  }
+  if (!res.ok) {
+    throw new Error(`API ${res.status}: ${await res.text()}`);
+  }
   return res.json();
 }
 
@@ -356,4 +376,88 @@ export function deleteInventoryItem(id: string): Promise<{ status: string }> {
   return api<{ status: string }>(`/api/v1/community/items/${id}`, {
     method: "DELETE",
   });
+}
+
+// ---------- Auth ----------
+
+export function signup(args: {
+  email: string;
+  password: string;
+  display_name: string;
+  household_name: string;
+}): Promise<SignupResponse> {
+  return api<SignupResponse>("/api/v1/auth/signup", {
+    method: "POST",
+    body: JSON.stringify(args),
+  });
+}
+
+export function login(email: string, password: string): Promise<LoginResponse> {
+  return api<LoginResponse>("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function logout(): Promise<{ status: string }> {
+  return api<{ status: string }>("/api/v1/auth/logout", { method: "POST" });
+}
+
+export function getMe(): Promise<MeResponse> {
+  return api<MeResponse>("/api/v1/auth/me");
+}
+
+export function changePassword(
+  current_password: string,
+  new_password: string,
+): Promise<{ status: string }> {
+  return api<{ status: string }>("/api/v1/auth/password", {
+    method: "POST",
+    body: JSON.stringify({ current_password, new_password }),
+  });
+}
+
+export function createHousehold(name: string): Promise<AuthHousehold> {
+  return api<AuthHousehold>("/api/v1/auth/households", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function switchHousehold(household_id: string): Promise<AuthHousehold> {
+  return api<AuthHousehold>("/api/v1/auth/switch-household", {
+    method: "POST",
+    body: JSON.stringify({ household_id }),
+  });
+}
+
+export function createInvite(
+  household_id: string,
+  role: "member" | "viewer" = "member",
+  email?: string,
+): Promise<CreateInviteResponse> {
+  return api<CreateInviteResponse>(`/api/v1/auth/households/${household_id}/invites`, {
+    method: "POST",
+    body: JSON.stringify({ role, email }),
+  });
+}
+
+export function previewInvite(token: string): Promise<InvitePreview> {
+  return api<InvitePreview>(`/api/v1/auth/invites/${token}`);
+}
+
+export function acceptInvite(token: string): Promise<AuthHousehold> {
+  return api<AuthHousehold>(`/api/v1/auth/invites/${token}/accept`, {
+    method: "POST",
+  });
+}
+
+export function revokeInvite(
+  household_id: string,
+  invite_id: string,
+): Promise<{ status: string }> {
+  return api<{ status: string }>(
+    `/api/v1/auth/households/${household_id}/invites/${invite_id}`,
+    { method: "DELETE" },
+  );
 }

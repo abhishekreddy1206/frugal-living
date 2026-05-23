@@ -343,3 +343,50 @@ export interface ItemCaptureResponse {
   items: InventoryItem[];
   created_count: number;
 }
+
+// ---------- Auth ----------
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  display_name: string | null;
+}
+
+export interface AuthHousehold {
+  id: string;
+  name: string;
+}
+
+export interface AuthMembership {
+  household: AuthHousehold;
+  role: string;
+}
+
+export interface MeResponse {
+  user: AuthUser;
+  memberships: AuthMembership[];
+  active_household: AuthHousehold | null;
+}
+
+export interface SignupResponse {
+  user: AuthUser;
+  household: AuthHousehold;
+}
+
+export interface LoginResponse {
+  user: AuthUser;
+  active_household: AuthHousehold;
+}
+
+export interface InvitePreview {
+  household_name: string;
+  role: string;
+  inviter_name: string | null;
+  expires_at: string;
+}
+
+export interface CreateInviteResponse {
+  token: string;
+  url: string;
+  expires_at: string;
+}
