@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Fraunces, Hanken_Grotesk } from "next/font/google";
 import ChatSidebar from "@/components/ChatSidebar";
 import Sidebar from "@/components/Sidebar";
+import { AuthProvider } from "@/components/AuthProvider";
 
 const display = Fraunces({
   subsets: ["latin"],
@@ -26,11 +27,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${display.variable} ${sans.variable}`}>
       <body>
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <main className="min-w-0 flex-1">{children}</main>
-        </div>
-        <ChatSidebar />
+        <AuthProvider>
+          <div className="flex min-h-screen">
+            <Sidebar />
+            <main className="min-w-0 flex-1">{children}</main>
+          </div>
+          <ChatSidebar />
+        </AuthProvider>
       </body>
     </html>
   );
