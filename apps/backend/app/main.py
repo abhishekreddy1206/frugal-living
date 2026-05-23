@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth import seed_reference_data
 from app.db import SessionLocal
-from app.routers import ai, community, content, food, health, tracking
+from app.routers import ai, auth, community, content, food, health, tracking
 
 
 @asynccontextmanager
@@ -36,6 +36,9 @@ app.include_router(food.router, prefix="/api/v1/food", tags=["food"])
 app.include_router(content.router, prefix="/api/v1/content", tags=["content"])
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["ai"])
 app.include_router(tracking.router, prefix="/api/v1/tracking", tags=["tracking"])
+
+# Auth (core)
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 
 # Tier B — community
 app.include_router(community.router, prefix="/api/v1/community", tags=["community"])
