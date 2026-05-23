@@ -43,3 +43,8 @@ ignore = ["B008"]
 "app/services/llm.py" = ["E501"]  # multi-line LLM prompt strings
 "app/services/ingredients.py" = ["E501"]  # multi-line ingredient catalog rows
 "app/models/*" = ["E501"]  # SQLAlchemy mapped_column lines are verbose
+
+[tool.pytest.ini_options]
+markers = [
+    "real_auth: opt out of the conftest auth dependency override; exercise the real signup/login/session flow",
+]
