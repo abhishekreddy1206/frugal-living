@@ -34,6 +34,9 @@ class User(Base, TimestampMixin):
     display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, nullable=False)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    failed_login_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     household_memberships: Mapped[list[HouseholdMember]] = relationship(back_populates="user")
 
@@ -153,3 +156,69 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class Session(Base):
+    """Server-side auth session. Created on login, revoked on logout/password-change.
+
+    Deliberate deviation from Rule 4 (TimestampMixin + deleted_at): sessions are
+    ephemeral auth infrastructure, following the same pattern as core.events and
+    core.audit_log. Lifecycle is expressed by `revoked_at` + `expires_at`.
+    """
+    __tablename__ = "sessions"
+    __table_args__ = (
+        Index("idx_sessions_user", "user_id"),
+        {"schema": "core"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("core.users.id"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    active_household_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("core.households.id"), nullable=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, nullable=False)
+
+
+class HouseholdInvite(Base):
+    """Pending invite to join a household. The raw token is shared by the inviter
+    out-of-band (link/text); only the SHA-256 hash is stored here.
+
+    Same infra-table rationale as Session for omitting TimestampMixin: lifecycle
+    is `expires_at` / `accepted_at` / `revoked_at`.
+    """
+    __tablename__ = "household_invites"
+    __table_args__ = (
+        Index("idx_household_invites_household", "household_id"),
+        {"schema": "core"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("core.households.id"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(32), default="member", nullable=False)
+    # member | viewer
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("core.users.id"), nullable=False
+    )
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    accepted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("core.users.id"), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, nullable=False)
