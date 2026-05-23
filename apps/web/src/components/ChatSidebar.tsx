@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { openConversation, sendChatMessage } from "@/lib/api";
 import type { ActionResult } from "@/lib/types";
+import { useAuth } from "@/components/AuthProvider";
 
 type Msg = {
   role: "user" | "assistant";
@@ -29,6 +30,7 @@ function Flame({ className }: { className?: string }) {
  */
 export default function ChatSidebar() {
   const pathname = usePathname();
+  const { activeHousehold } = useAuth();
   const [open, setOpen] = useState(false);
   const [convId, setConvId] = useState<string | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -62,7 +64,7 @@ export default function ChatSidebar() {
     return () => {
       cancelled = true;
     };
-  }, [open, pathname]);
+  }, [open, pathname, activeHousehold?.id]);
 
   const send = useCallback(async () => {
     const text = draft.trim();
