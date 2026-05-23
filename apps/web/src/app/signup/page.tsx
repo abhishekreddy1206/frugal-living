@@ -2,11 +2,20 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { acceptInvite, signup } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 
 export default function SignupPage() {
+  // useSearchParams() must be inside a Suspense boundary for Next.js static prerender.
+  return (
+    <Suspense fallback={null}>
+      <SignupForm />
+    </Suspense>
+  );
+}
+
+function SignupForm() {
   const router = useRouter();
   const search = useSearchParams();
   const returnTo = search.get("return");
