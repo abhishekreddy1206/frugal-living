@@ -28,6 +28,7 @@ from app.schemas.auth import (
     PasswordChangeRequest,
     SignupRequest,
     SignupResponse,
+    SwitchHouseholdRequest,
     UserRead,
 )
 from app.services.auth import sessions as session_svc
@@ -224,9 +225,7 @@ def change_password(
     request: PasswordChangeRequest,
     db: Annotated[Session, Depends(get_db)],
     user: CurrentUser,
-    session_token: Annotated[
-        str | None, Cookie(alias=settings.session_cookie_name)
-    ] = None,
+    session_token: Annotated[str | None, Cookie(alias=settings.session_cookie_name)] = None,
 ) -> dict:
     """Change password. Verifies the current one and revokes all *other* sessions."""
     if user.hashed_password is None or not verify_password(
@@ -253,8 +252,48 @@ def create_household(
     db.add(household)
     db.flush()
     db.add(HouseholdMember(user_id=user.id, household_id=household.id, role="owner"))
-    _audit(db, action="auth.household_created", user_id=user.id,
-           payload={"household_id": str(household.id)})
+    _audit(
+        db,
+        action="auth.household_created",
+        user_id=user.id,
+        payload={"household_id": str(household.id)},
+    )
     db.commit()
     db.refresh(household)
+    return HouseholdRead.model_validate(household)
+
+
+@router.post("/switch-household", response_model=HouseholdRead)
+def switch_household(
+    request: SwitchHouseholdRequest,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+    session_token: Annotated[str | None, Cookie(alias=settings.session_cookie_name)] = None,
+) -> HouseholdRead:
+    """Set the current session's active household. 403 if the user isn't a member."""
+    membership = (
+        db.query(HouseholdMember)
+        .filter(
+            HouseholdMember.user_id == user.id,
+            HouseholdMember.household_id == request.household_id,
+        )
+        .one_or_none()
+    )
+    if membership is None:
+        raise HTTPException(status_code=403, detail="not a member of that household")
+
+    sess = get_session_by_raw_token(db, session_token) if session_token else None
+    if sess is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    sess.active_household_id = request.household_id
+    db.flush()
+    _audit(
+        db,
+        action="auth.household_switched",
+        user_id=user.id,
+        payload={"household_id": str(request.household_id)},
+    )
+    db.commit()
+    household = db.get(Household, request.household_id)
+    assert household is not None
     return HouseholdRead.model_validate(household)
