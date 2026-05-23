@@ -19,6 +19,7 @@ from app.models.core import (
     User,
 )
 from app.schemas.auth import (
+    CreateHouseholdRequest,
     HouseholdRead,
     LoginRequest,
     LoginResponse,
@@ -239,3 +240,21 @@ def change_password(
     _audit(db, action="auth.password_change", user_id=user.id)
     db.commit()
     return {"status": "password_changed"}
+
+
+@router.post("/households", response_model=HouseholdRead)
+def create_household(
+    request: CreateHouseholdRequest,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+) -> HouseholdRead:
+    """Create a new household; the caller becomes its owner."""
+    household = Household(name=request.name)
+    db.add(household)
+    db.flush()
+    db.add(HouseholdMember(user_id=user.id, household_id=household.id, role="owner"))
+    _audit(db, action="auth.household_created", user_id=user.id,
+           payload={"household_id": str(household.id)})
+    db.commit()
+    db.refresh(household)
+    return HouseholdRead.model_validate(household)
