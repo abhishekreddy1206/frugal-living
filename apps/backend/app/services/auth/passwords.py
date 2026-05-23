@@ -1,7 +1,7 @@
 """Password hashing and verification via passlib's bcrypt backend."""
 from __future__ import annotations
 
-from passlib.context import CryptContext
+from passlib.context import CryptContext  # type: ignore[import-untyped]
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

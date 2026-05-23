@@ -139,6 +139,7 @@ def login(
 
     locked, until = throttle_svc.is_locked(user)
     if locked:
+        assert until is not None  # is_locked returns (True, datetime) when locked
         raise HTTPException(
             status_code=429,
             detail=f"account locked until {until.isoformat()}",

@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.db import SessionLocal
 from app.main import app
-from app.models.core import AuditLog, HouseholdMember, Session as AuthSession, Subscription, User
+from app.models.core import AuditLog, HouseholdMember, Subscription, User
+from app.models.core import Session as AuthSession
 
 pytestmark = pytest.mark.real_auth
 
@@ -102,6 +103,7 @@ def test_signup_rejects_duplicate_email(client):
         db.flush()
         db.delete(sub)
         db.delete(membership)
-        if h: db.delete(h)
+        if h:
+            db.delete(h)
         db.delete(u)
         db.commit()

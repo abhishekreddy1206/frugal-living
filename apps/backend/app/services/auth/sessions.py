@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Literal, cast
 
 from fastapi import Response
 from sqlalchemy.orm import Session as DbSession
@@ -109,7 +110,7 @@ def set_session_cookie(response: Response, raw_token: str) -> None:
         value=raw_token,
         max_age=settings.session_max_age_days * 24 * 3600,
         httponly=True,
-        samesite=settings.session_cookie_samesite,
+        samesite=cast(Literal["lax", "strict", "none"], settings.session_cookie_samesite),
         secure=settings.session_cookie_secure,
         path="/",
     )
