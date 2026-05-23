@@ -14,13 +14,17 @@ from app.db import get_db
 from app.models.core import (
     AuditLog,
     Household,
+    HouseholdInvite,
     HouseholdMember,
     Subscription,
     User,
 )
 from app.schemas.auth import (
     CreateHouseholdRequest,
+    CreateInviteRequest,
+    CreateInviteResponse,
     HouseholdRead,
+    InvitePreview,
     LoginRequest,
     LoginResponse,
     MembershipRead,
@@ -31,6 +35,7 @@ from app.schemas.auth import (
     SwitchHouseholdRequest,
     UserRead,
 )
+from app.services.auth import invites as invite_svc
 from app.services.auth import sessions as session_svc
 from app.services.auth import throttle as throttle_svc
 from app.services.auth.passwords import hash_password, verify_password
@@ -295,5 +300,106 @@ def switch_household(
     )
     db.commit()
     household = db.get(Household, request.household_id)
+    assert household is not None
+    return HouseholdRead.model_validate(household)
+
+
+def _require_owner(db: Session, *, user: User, household_id) -> None:
+    membership = (
+        db.query(HouseholdMember)
+        .filter(
+            HouseholdMember.user_id == user.id,
+            HouseholdMember.household_id == household_id,
+        )
+        .one_or_none()
+    )
+    if membership is None or membership.role != "owner":
+        raise HTTPException(status_code=403, detail="must be a household owner")
+
+
+@router.post(
+    "/households/{household_id}/invites",
+    response_model=CreateInviteResponse,
+)
+def create_invite_endpoint(
+    household_id,
+    request: CreateInviteRequest,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+) -> CreateInviteResponse:
+    """Owner-only. Mint an invite; returns the raw token and a shareable URL (one-time)."""
+    _require_owner(db, user=user, household_id=household_id)
+    inv, raw = invite_svc.create_invite(
+        db, household_id=household_id, role=request.role,
+        created_by_user_id=user.id, email=request.email,
+    )
+    _audit(db, action="auth.invite_created", user_id=user.id,
+           payload={"household_id": str(household_id), "invite_id": str(inv.id)})
+    db.commit()
+    return CreateInviteResponse(
+        token=raw,
+        url=f"/invite/{raw}",
+        expires_at=inv.expires_at,
+    )
+
+
+@router.delete("/households/{household_id}/invites/{invite_id}")
+def revoke_invite_endpoint(
+    household_id,
+    invite_id,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+) -> dict:
+    """Owner-only. Revoke an unaccepted invite."""
+    _require_owner(db, user=user, household_id=household_id)
+    inv = db.get(HouseholdInvite, invite_id)
+    if inv is None or str(inv.household_id) != str(household_id):
+        raise HTTPException(status_code=404, detail="invite not found")
+    invite_svc.revoke_invite(db, inv)
+    _audit(db, action="auth.invite_revoked", user_id=user.id,
+           payload={"invite_id": str(inv.id)})
+    db.commit()
+    return {"status": "revoked"}
+
+
+@router.get("/invites/{token}", response_model=InvitePreview)
+def preview_invite(
+    token: str,
+    db: Annotated[Session, Depends(get_db)],
+    _user: CurrentUser,  # auth required to preview (keeps things simple)
+) -> InvitePreview:
+    """Preview an invite. 410 if not redeemable, 404 if no such token."""
+    inv = invite_svc.get_invite_by_raw_token(db, token)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="invite not found")
+    if not invite_svc.is_redeemable(inv):
+        raise HTTPException(status_code=410, detail="invite is no longer redeemable")
+    household = db.get(Household, inv.household_id)
+    inviter = db.get(User, inv.created_by_user_id)
+    return InvitePreview(
+        household_name=household.name if household else "",
+        role=inv.role,
+        inviter_name=inviter.display_name if inviter else None,
+        expires_at=inv.expires_at,
+    )
+
+
+@router.post("/invites/{token}/accept", response_model=HouseholdRead)
+def accept_invite_endpoint(
+    token: str,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+) -> HouseholdRead:
+    """Accept an invite — become a HouseholdMember with the invite's role. 410 if not redeemable."""
+    inv = invite_svc.get_invite_by_raw_token(db, token)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="invite not found")
+    if not invite_svc.is_redeemable(inv):
+        raise HTTPException(status_code=410, detail="invite is no longer redeemable")
+    invite_svc.accept_invite(db, inv=inv, user=user)
+    household = db.get(Household, inv.household_id)
+    _audit(db, action="auth.invite_accepted", user_id=user.id,
+           payload={"invite_id": str(inv.id)})
+    db.commit()
     assert household is not None
     return HouseholdRead.model_validate(household)
