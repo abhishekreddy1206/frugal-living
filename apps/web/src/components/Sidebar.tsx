@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { logout, switchHousehold } from "@/lib/api";
+import { useAuth } from "@/components/AuthProvider";
 
 type NavItem = { href: string; label: string };
 type NavSection = { title: string; items: NavItem[] };
@@ -93,13 +95,67 @@ export default function Sidebar() {
       </nav>
 
       {/* footer */}
-      <div className="border-t border-line px-6 py-4">
-        <div className="flex items-center gap-2 text-[12px] text-ink-soft">
-          <span className="h-2 w-2 rounded-full bg-moss" />
-          <span className="font-medium text-ink">Dev Household</span>
-        </div>
-        <p className="mt-1 text-[11px] text-ink-faint">Hearth v0.1 · pre-launch</p>
-      </div>
+      <SidebarFooter />
     </aside>
+  );
+}
+
+function SidebarFooter() {
+  const { user, memberships, activeHousehold, refresh } = useAuth();
+  const router = useRouter();
+
+  async function onSwitch(id: string) {
+    try {
+      await switchHousehold(id);
+      await refresh();
+      router.refresh();
+    } catch {
+      /* noop — guard will redirect on auth errors */
+    }
+  }
+
+  async function onLogout() {
+    try {
+      await logout();
+    } finally {
+      await refresh();
+      router.replace("/login");
+    }
+  }
+
+  if (!user) {
+    return (
+      <div className="border-t border-line px-6 py-4">
+        <p className="text-[11px] text-ink-faint">Hearth v0.1 · pre-launch</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-line px-6 py-4 space-y-2">
+      <div className="text-[12px] text-ink-soft">
+        <div className="font-medium text-ink">{activeHousehold?.name ?? "—"}</div>
+        <div className="text-[11px] text-ink-faint">{user.email}</div>
+      </div>
+      {memberships.length > 1 && (
+        <select
+          value={activeHousehold?.id ?? ""}
+          onChange={(e) => onSwitch(e.target.value)}
+          className="w-full rounded-md border border-line bg-paper px-2 py-1 text-[12px]"
+        >
+          {memberships.map((m) => (
+            <option key={m.household.id} value={m.household.id}>
+              {m.household.name}
+            </option>
+          ))}
+        </select>
+      )}
+      <button
+        onClick={onLogout}
+        className="w-full rounded-md border border-line bg-paper px-2 py-1 text-[12px] text-ink-soft hover:bg-raised"
+      >
+        Log out
+      </button>
+    </div>
   );
 }
