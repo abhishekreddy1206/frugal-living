@@ -24,6 +24,7 @@ from app.schemas.auth import (
     LoginResponse,
     MembershipRead,
     MeResponse,
+    PasswordChangeRequest,
     SignupRequest,
     SignupResponse,
     UserRead,
@@ -34,6 +35,7 @@ from app.services.auth.passwords import hash_password, verify_password
 from app.services.auth.sessions import (
     clear_session_cookie,
     get_session_by_raw_token,
+    revoke_other_sessions,
     revoke_session,
 )
 
@@ -214,3 +216,26 @@ def me(
         memberships=member_reads,
         active_household=HouseholdRead.model_validate(household),
     )
+
+
+@router.post("/password")
+def change_password(
+    request: PasswordChangeRequest,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+    session_token: Annotated[
+        str | None, Cookie(alias=settings.session_cookie_name)
+    ] = None,
+) -> dict:
+    """Change password. Verifies the current one and revokes all *other* sessions."""
+    if user.hashed_password is None or not verify_password(
+        request.current_password, user.hashed_password
+    ):
+        raise HTTPException(status_code=401, detail="current password is wrong")
+    user.hashed_password = hash_password(request.new_password)
+
+    current_session = get_session_by_raw_token(db, session_token) if session_token else None
+    revoke_other_sessions(db, user=user, except_session=current_session)
+    _audit(db, action="auth.password_change", user_id=user.id)
+    db.commit()
+    return {"status": "password_changed"}
