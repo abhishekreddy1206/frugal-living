@@ -1,12 +1,15 @@
 """Auth endpoints: signup, login, logout, me, password, multi-household, invites."""
+
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.auth import CurrentHousehold, CurrentUser
+from app.config import settings
 from app.db import get_db
 from app.models.core import (
     AuditLog,
@@ -19,6 +22,8 @@ from app.schemas.auth import (
     HouseholdRead,
     LoginRequest,
     LoginResponse,
+    MembershipRead,
+    MeResponse,
     SignupRequest,
     SignupResponse,
     UserRead,
@@ -26,6 +31,11 @@ from app.schemas.auth import (
 from app.services.auth import sessions as session_svc
 from app.services.auth import throttle as throttle_svc
 from app.services.auth.passwords import hash_password, verify_password
+from app.services.auth.sessions import (
+    clear_session_cookie,
+    get_session_by_raw_token,
+    revoke_session,
+)
 
 router = APIRouter()
 
@@ -37,13 +47,15 @@ def _request_meta(request: Request) -> tuple[str | None, str | None]:
 
 
 def _audit(db: Session, *, action: str, user_id, payload: dict | None = None) -> None:
-    db.add(AuditLog(
-        actor_user_id=user_id,
-        action=action,
-        target_type="user",
-        target_id=user_id,
-        payload=payload or {},
-    ))
+    db.add(
+        AuditLog(
+            actor_user_id=user_id,
+            action=action,
+            target_type="user",
+            target_id=user_id,
+            payload=payload or {},
+        )
+    )
 
 
 @router.post("/signup", response_model=SignupResponse)
@@ -71,15 +83,25 @@ def signup(
     db.flush()
 
     db.add(HouseholdMember(user_id=user.id, household_id=household.id, role="owner"))
-    db.add(Subscription(
-        user_id=user.id, plan="free", status="active",
-        tier_a_enabled=True, tier_b_enabled=True, tier_s_enabled=False,
-    ))
+    db.add(
+        Subscription(
+            user_id=user.id,
+            plan="free",
+            status="active",
+            tier_a_enabled=True,
+            tier_b_enabled=True,
+            tier_s_enabled=False,
+        )
+    )
     db.flush()
 
     ua, ip = _request_meta(http_request)
     sess, raw_token = session_svc.create_session(
-        db, user=user, active_household_id=household.id, user_agent=ua, ip=ip,
+        db,
+        user=user,
+        active_household_id=household.id,
+        user_agent=ua,
+        ip=ip,
     )
     _audit(db, action="auth.signup", user_id=user.id, payload={"email": user.email})
     db.commit()
@@ -113,9 +135,7 @@ def login(
             detail=f"account locked until {until.isoformat()}",
         )
 
-    if user.hashed_password is None or not verify_password(
-        request.password, user.hashed_password
-    ):
+    if user.hashed_password is None or not verify_password(request.password, user.hashed_password):
         throttle_svc.register_failed_login(db, user)
         db.commit()
         raise HTTPException(status_code=401, detail="invalid email or password")
@@ -133,7 +153,11 @@ def login(
 
     ua, ip = _request_meta(http_request)
     sess, raw_token = session_svc.create_session(
-        db, user=user, active_household_id=active_household_id, user_agent=ua, ip=ip,
+        db,
+        user=user,
+        active_household_id=active_household_id,
+        user_agent=ua,
+        ip=ip,
     )
     _audit(db, action="auth.login", user_id=user.id, payload={"email": user.email})
     db.commit()
@@ -144,5 +168,49 @@ def login(
         raise HTTPException(status_code=400, detail="user has no household")
     return LoginResponse(
         user=UserRead.model_validate(user),
+        active_household=HouseholdRead.model_validate(household),
+    )
+
+
+@router.post("/logout")
+def logout(
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+    session_token: Annotated[str | None, Cookie(alias=settings.session_cookie_name)] = None,
+) -> dict:
+    """Revoke the current session and clear the cookie."""
+    if session_token:
+        sess = get_session_by_raw_token(db, session_token)
+        if sess is not None:
+            revoke_session(db, sess)
+    _audit(db, action="auth.logout", user_id=user.id)
+    db.commit()
+    clear_session_cookie(response)
+    return {"status": "logged_out"}
+
+
+@router.get("/me", response_model=MeResponse)
+def me(
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+    household: CurrentHousehold,
+) -> MeResponse:
+    """Return the current user, their household memberships, and the active household."""
+    memberships = db.query(HouseholdMember).filter(HouseholdMember.user_id == user.id).all()
+    member_reads = []
+    for m in memberships:
+        h = db.get(Household, m.household_id)
+        if h is None:
+            continue
+        member_reads.append(
+            MembershipRead(
+                household=HouseholdRead.model_validate(h),
+                role=m.role,
+            )
+        )
+    return MeResponse(
+        user=UserRead.model_validate(user),
+        memberships=member_reads,
         active_household=HouseholdRead.model_validate(household),
     )
