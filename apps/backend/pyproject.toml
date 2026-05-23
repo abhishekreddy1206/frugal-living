@@ -16,6 +16,7 @@ dependencies = [
   "httpx>=0.28",
   "python-multipart>=0.0.12",
   "passlib[bcrypt]>=1.7",
+  "bcrypt>=3.2,<4",
   "python-jose[cryptography]>=3.3",
 ]
 
