@@ -117,8 +117,16 @@ def set_session_cookie(response: Response, raw_token: str) -> None:
 
 
 def clear_session_cookie(response: Response) -> None:
-    """Remove the session cookie from the client."""
+    """Remove the session cookie from the client.
+
+    Echoes the original `samesite` + `secure` attributes — browsers (Chromium
+    especially) require an exact attribute match to clear a cookie. Important
+    when deployed with `samesite="none"` + `secure=True` for cross-domain prod.
+    """
     response.delete_cookie(
         key=settings.session_cookie_name,
         path="/",
+        httponly=True,
+        samesite=cast(Literal["lax", "strict", "none"], settings.session_cookie_samesite),
+        secure=settings.session_cookie_secure,
     )

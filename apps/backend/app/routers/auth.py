@@ -132,7 +132,9 @@ def login(
     """Verify credentials, open a session, set the cookie. 401 / 429 on failure."""
     user = db.query(User).filter(User.email == str(request.email).lower()).one_or_none()
     if user is None:
-        # Same status as wrong-password to avoid email enumeration.
+        # Same status as wrong-password to avoid response-code enumeration, AND
+        # spend a bcrypt cycle to close the timing-oracle gap (~50–300ms either way).
+        verify_password(request.password, "$2b$12$" + "x" * 53)
         raise HTTPException(status_code=401, detail="invalid email or password")
     if not user.is_active:
         raise HTTPException(status_code=401, detail="invalid email or password")
