@@ -15,6 +15,8 @@ real signup/login/session flow.
 
 from __future__ import annotations
 
+import uuid as _uuid_for_fixture
+
 import pytest
 from sqlalchemy.orm import Session
 
@@ -54,6 +56,11 @@ from app.models.food import (
     ShoppingList,
 )
 
+# Stable IDs for the second fixture household used in cross-household visibility tests.
+SECOND_USER_ID = _uuid_for_fixture.UUID("00000000-0000-0000-0000-000000000011")
+SECOND_HOUSEHOLD_ID = _uuid_for_fixture.UUID("00000000-0000-0000-0000-000000000012")
+SECOND_USER_EMAIL = "second@frugal-living.local"
+
 
 def _seed_test_user_and_household() -> None:
     """Seed the test User + Household + HouseholdMember + Subscription with stable IDs.
@@ -92,6 +99,31 @@ def _seed_test_user_and_household() -> None:
             ))
         else:
             subscription.tier_b_enabled = True
+
+        second_user = db_.get(User, SECOND_USER_ID)
+        if second_user is None:
+            db_.add(User(id=SECOND_USER_ID, email=SECOND_USER_EMAIL, display_name="Second User"))
+            db_.flush()
+
+        second_household = db_.get(Household, SECOND_HOUSEHOLD_ID)
+        if second_household is None:
+            db_.add(Household(id=SECOND_HOUSEHOLD_ID, name="Second Household", size=1))
+            db_.flush()
+
+        if (
+            db_.query(HouseholdMember)
+            .filter_by(user_id=SECOND_USER_ID, household_id=SECOND_HOUSEHOLD_ID)
+            .one_or_none() is None
+        ):
+            db_.add(HouseholdMember(
+                user_id=SECOND_USER_ID, household_id=SECOND_HOUSEHOLD_ID, role="owner",
+            ))
+
+        if db_.query(Subscription).filter_by(user_id=SECOND_USER_ID).one_or_none() is None:
+            db_.add(Subscription(
+                user_id=SECOND_USER_ID, plan="free", status="active",
+                tier_a_enabled=True, tier_b_enabled=True,
+            ))
 
         db_.commit()
 
@@ -140,6 +172,16 @@ def _clean_household_data():
     don't bleed into subsequent tests. The dev household + ingredient catalog
     are preserved."""
     with SessionLocal() as db_:
+        # Reset location metadata for both households so radius tests start clean.
+        for hid in (DEV_HOUSEHOLD_ID, SECOND_HOUSEHOLD_ID):
+            h = db_.get(Household, hid)
+            if h is not None:
+                md = dict(h.metadata_ or {})
+                md.pop("lat", None)
+                md.pop("lng", None)
+                md.pop("share_radius_miles", None)
+                h.metadata_ = md
+
         # Order matters for FKs: child tables before parents.
         db_.query(FoodWasteEvent).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
         db_.query(PreservationJob).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
@@ -154,6 +196,7 @@ def _clean_household_data():
         db_.query(CommunityJoinRequest).delete()
         db_.query(Community).delete()
         db_.query(CommunityItem).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
+        db_.query(CommunityItem).filter_by(household_id=SECOND_HOUSEHOLD_ID).delete()
         # Recipes are not scoped by household, but we wipe ai-generated ones
         # because tests create them freely. User-created recipes (if any) stay.
         db_.query(Recipe).filter_by(is_ai_generated=True).delete()
@@ -180,3 +223,28 @@ def db() -> Session:
         session.close()
         transaction.rollback()
         connection.close()
+
+
+@pytest.fixture
+def second_household(db) -> Household:
+    """The second seeded household (separate from the default DEV_HOUSEHOLD_ID).
+    For tests that need two households to exercise cross-household visibility."""
+    h = db.get(Household, SECOND_HOUSEHOLD_ID)
+    assert h is not None
+    return h
+
+
+@pytest.fixture
+def second_user(db) -> User:
+    u = db.get(User, SECOND_USER_ID)
+    assert u is not None
+    return u
+
+
+def set_household_location(db, household: Household, lat: float, lng: float) -> None:
+    """Test helper — write lat/lng into the household's metadata_ JSONB."""
+    md = dict(household.metadata_ or {})
+    md["lat"] = lat
+    md["lng"] = lng
+    household.metadata_ = md
+    db.flush()
