@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session
 
 from app.auth import CurrentHousehold, CurrentUser
 from app.db import get_db
-from app.models.community import CommunityItem, CommunityJoinRequest, CommunityMember
+from app.models.community import (
+    CommunityItem,
+    CommunityJoinRequest,
+    CommunityMember,
+    Listing,
+    ListingCommunity,
+)
 from app.schemas.community import (
     CommunityCreate,
     CommunityMembershipRead,
@@ -24,11 +30,16 @@ from app.schemas.community import (
     ItemUpdate,
     JoinRequestDecideRequest,
     JoinRequestRead,
+    ListingCreate,
+    ListingItemSummary,
+    ListingRead,
+    ListingUpdate,
     MyCommunitiesResponse,
 )
 from app.services.community import communities as community_svc
 from app.services.community import items as items_service
 from app.services.community import join_requests as jr_svc
+from app.services.community import listings as listings_svc
 from app.services.community.communities import (
     CommunityNotFound,
     CommunitySlugTaken,
@@ -43,10 +54,191 @@ from app.services.community.join_requests import (
     JoinRequestNotFound,
     get_request_or_404,
 )
+from app.services.community.listings import (
+    CommunityNotPermittedForListing,
+    NotHouseholdMember,
+    OneActiveListingPerItem,
+    QuantityExceedsItem,
+)
+from app.services.community.listings import (
+    ListingNotFound as _ListingNotFound,
+)
 from app.services.llm import extract_items_from_image
 
 router = APIRouter()
 
+
+# ---------------------------------------------------------------------------
+# Listings helper
+# ---------------------------------------------------------------------------
+
+def _listing_read(db: Session, listing: Listing) -> ListingRead:
+    item = db.get(CommunityItem, listing.item_id)
+    assert item is not None
+    community_ids = [
+        lc.community_id for lc in
+        db.query(ListingCommunity).filter_by(listing_id=listing.id).all()
+    ]
+    return ListingRead(
+        id=listing.id,
+        item=ListingItemSummary(
+            id=item.id, name=item.name, category=item.category, tags=item.tags or [],
+            quantity=item.quantity, condition=item.condition,
+            estimated_value_usd=(
+                float(item.estimated_value_usd) if item.estimated_value_usd is not None else None
+            ),
+            photo_url=item.photo_url, notes=item.notes,
+        ),
+        allowed_exchange_types=listing.allowed_exchange_types,
+        quantity_available=listing.quantity_available,
+        share_in_radius=listing.share_in_radius,
+        share_radius_miles=listing.share_radius_miles,
+        availability_status=listing.availability_status,
+        description_override=listing.description_override,
+        community_ids=community_ids,
+        created_at=listing.created_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Listings endpoints
+# NOTE: GET /listings/mine MUST be registered BEFORE GET /listings/{listing_id}
+#       so that "mine" is not captured as a UUID.
+# ---------------------------------------------------------------------------
+
+@router.post("/listings", response_model=ListingRead)
+def create_listing_endpoint(
+    request: ListingCreate,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> ListingRead:
+    try:
+        listing = listings_svc.create_listing(
+            db, household=household, user=user, item_id=request.item_id,
+            allowed_exchange_types=request.allowed_exchange_types,
+            quantity_available=request.quantity_available,
+            community_ids=request.community_ids,
+            share_in_radius=request.share_in_radius,
+            share_radius_miles=request.share_radius_miles,
+            description_override=request.description_override,
+        )
+    except _ListingNotFound:
+        raise HTTPException(status_code=404, detail="item not found for your household") from None
+    except QuantityExceedsItem as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except CommunityNotPermittedForListing as e:
+        raise HTTPException(status_code=403, detail=str(e)) from None
+    except OneActiveListingPerItem:
+        raise HTTPException(
+            status_code=409, detail="an active listing already exists for this item",
+        ) from None
+    except NotHouseholdMember:
+        raise HTTPException(status_code=403, detail="must be a household owner or member") from None
+    db.commit()
+    db.refresh(listing)
+    return _listing_read(db, listing)
+
+
+@router.get("/listings/mine", response_model=list[ListingRead])
+def list_mine_endpoint(
+    household: CurrentHousehold,
+    db: Annotated[Session, Depends(get_db)],
+) -> list[ListingRead]:
+    rows = (
+        db.query(Listing)
+        .join(CommunityItem, CommunityItem.id == Listing.item_id)
+        .filter(
+            CommunityItem.household_id == household.id,
+            Listing.deleted_at.is_(None),
+        )
+        .order_by(Listing.created_at.desc())
+        .all()
+    )
+    return [_listing_read(db, r) for r in rows]
+
+
+@router.patch("/listings/{listing_id}", response_model=ListingRead)
+def update_listing_endpoint(
+    listing_id: uuid.UUID,
+    request: ListingUpdate,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> ListingRead:
+    try:
+        listing = listings_svc.update_listing(
+            db, household=household, user=user, listing_id=listing_id,
+            allowed_exchange_types=request.allowed_exchange_types,
+            quantity_available=request.quantity_available,
+            community_ids=request.community_ids,
+            share_in_radius=request.share_in_radius,
+            share_radius_miles=request.share_radius_miles,
+            description_override=request.description_override,
+            availability_status=request.availability_status,
+        )
+    except _ListingNotFound:
+        raise HTTPException(status_code=404, detail="listing not found") from None
+    except QuantityExceedsItem as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except CommunityNotPermittedForListing as e:
+        raise HTTPException(status_code=403, detail=str(e)) from None
+    except NotHouseholdMember:
+        raise HTTPException(status_code=403, detail="must be a household owner or member") from None
+    db.commit()
+    db.refresh(listing)
+    return _listing_read(db, listing)
+
+
+@router.delete("/listings/{listing_id}")
+def delete_listing_endpoint(
+    listing_id: uuid.UUID,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    try:
+        listings_svc.soft_delete_listing(
+            db, household=household, user=user, listing_id=listing_id,
+        )
+    except _ListingNotFound:
+        raise HTTPException(status_code=404, detail="listing not found") from None
+    except NotHouseholdMember:
+        raise HTTPException(status_code=403, detail="must be a household owner or member") from None
+    db.commit()
+    return {"status": "deleted"}
+
+
+@router.get("/listings/{listing_id}", response_model=ListingRead)
+def get_listing_endpoint(
+    listing_id: uuid.UUID,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> ListingRead:
+    """Visibility-gated detail. Owners see their own; others see only listings
+    the visibility helper returns."""
+    listing = db.get(Listing, listing_id)
+    if listing is None or listing.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="listing not found")
+    item = db.get(CommunityItem, listing.item_id)
+    if item is not None and item.household_id == household.id:
+        # Owner-side read.
+        return _listing_read(db, listing)
+    # Visibility-gated read.
+    from app.services.community.visibility import listings_visible_to
+    visible_ids = {
+        r.id for r in
+        listings_visible_to(db, viewer_household=household, viewer_user=user).all()
+    }
+    if listing.id not in visible_ids:
+        raise HTTPException(status_code=404, detail="listing not found")
+    return _listing_read(db, listing)
+
+
+# ---------------------------------------------------------------------------
+# Items endpoints
+# ---------------------------------------------------------------------------
 
 @router.get("/items", response_model=list[ItemRead])
 def list_items(
