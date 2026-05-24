@@ -22,10 +22,13 @@ from app.schemas.community import (
     ItemCreate,
     ItemRead,
     ItemUpdate,
+    JoinRequestDecideRequest,
+    JoinRequestRead,
     MyCommunitiesResponse,
 )
 from app.services.community import communities as community_svc
 from app.services.community import items as items_service
+from app.services.community import join_requests as jr_svc
 from app.services.community.communities import (
     CommunityNotFound,
     CommunitySlugTaken,
@@ -33,6 +36,13 @@ from app.services.community.communities import (
     SoleOwnerCannotLeave,
 )
 from app.services.community.items import CommunityItemNotFound
+from app.services.community.join_requests import (
+    AlreadyAMember,
+    AlreadyDecided,
+    AlreadyPending,
+    JoinRequestNotFound,
+    get_request_or_404,
+)
 from app.services.llm import extract_items_from_image
 
 router = APIRouter()
@@ -298,3 +308,116 @@ def leave_community_endpoint(
         ) from None
     db.commit()
     return {"status": "left"}
+
+
+@router.post("/communities/{community_id}/join-requests", response_model=JoinRequestRead)
+def request_to_join_endpoint(
+    community_id: uuid.UUID,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+) -> JoinRequestRead:
+    try:
+        c = community_svc.get_community_or_404(db, community_id)
+        req = jr_svc.request_to_join(db, user=user, community=c)
+    except CommunityNotFound:
+        raise HTTPException(status_code=404, detail="community not found") from None
+    except AlreadyAMember:
+        raise HTTPException(status_code=409, detail="already a member") from None
+    except AlreadyPending:
+        raise HTTPException(status_code=409, detail="already have a pending request") from None
+    db.commit()
+    db.refresh(req)
+    return JoinRequestRead.model_validate(req)
+
+
+@router.post("/communities/{community_id}/join-requests/withdraw")
+def withdraw_request_endpoint(
+    community_id: uuid.UUID,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+) -> dict:
+    # Find the caller's own pending request for this community.
+    req = (
+        db.query(CommunityJoinRequest)
+        .filter_by(community_id=community_id, user_id=user.id, status="pending")
+        .one_or_none()
+    )
+    if req is None:
+        raise HTTPException(status_code=404, detail="no pending request")
+    try:
+        jr_svc.withdraw_request(db, user=user, request=req)
+    except (JoinRequestNotFound, AlreadyDecided) as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
+    db.commit()
+    return {"status": "withdrawn"}
+
+
+@router.get("/communities/{community_id}/join-requests", response_model=list[JoinRequestRead])
+def list_join_requests_endpoint(
+    community_id: uuid.UUID,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+) -> list[JoinRequestRead]:
+    try:
+        c = community_svc.get_community_or_404(db, community_id)
+        # Reuse the owner check from the service.
+        community_svc._require_owner(db, user=user, community=c)
+    except CommunityNotFound:
+        raise HTTPException(status_code=404, detail="community not found") from None
+    except NotACommunityMember:
+        raise HTTPException(status_code=403, detail="must be a community owner") from None
+    rows = jr_svc.list_pending_requests(db, community=c)
+    return [JoinRequestRead.model_validate(r) for r in rows]
+
+
+@router.post(
+    "/communities/{community_id}/join-requests/{request_id}/approve",
+    response_model=JoinRequestRead,
+)
+def approve_request_endpoint(
+    community_id: uuid.UUID,
+    request_id: uuid.UUID,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+) -> JoinRequestRead:
+    try:
+        req = get_request_or_404(db, request_id)
+        if req.community_id != community_id:
+            raise JoinRequestNotFound(str(request_id))
+        jr_svc.approve_request(db, owner_user=user, request=req)
+    except JoinRequestNotFound:
+        raise HTTPException(status_code=404, detail="join request not found") from None
+    except NotACommunityMember:
+        raise HTTPException(status_code=403, detail="must be a community owner") from None
+    except AlreadyDecided:
+        raise HTTPException(status_code=409, detail="already decided") from None
+    db.commit()
+    db.refresh(req)
+    return JoinRequestRead.model_validate(req)
+
+
+@router.post(
+    "/communities/{community_id}/join-requests/{request_id}/decline",
+    response_model=JoinRequestRead,
+)
+def decline_request_endpoint(
+    community_id: uuid.UUID,
+    request_id: uuid.UUID,
+    request: JoinRequestDecideRequest,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+) -> JoinRequestRead:
+    try:
+        req = get_request_or_404(db, request_id)
+        if req.community_id != community_id:
+            raise JoinRequestNotFound(str(request_id))
+        jr_svc.decline_request(db, owner_user=user, request=req, note=request.note)
+    except JoinRequestNotFound:
+        raise HTTPException(status_code=404, detail="join request not found") from None
+    except NotACommunityMember:
+        raise HTTPException(status_code=403, detail="must be a community owner") from None
+    except AlreadyDecided:
+        raise HTTPException(status_code=409, detail="already decided") from None
+    db.commit()
+    db.refresh(req)
+    return JoinRequestRead.model_validate(req)
