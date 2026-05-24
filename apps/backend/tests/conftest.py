@@ -29,7 +29,14 @@ from app.auth import (
 from app.db import SessionLocal, engine
 from app.main import app
 from app.models.ai import Briefing, Conversation
-from app.models.community import CommunityItem
+from app.models.community import (
+    Community,
+    CommunityItem,
+    CommunityJoinRequest,
+    CommunityMember,
+    Listing,
+    ListingCommunity,
+)
 from app.models.content import ContentItem
 from app.models.core import (
     Event,
@@ -139,6 +146,13 @@ def _clean_household_data():
         db_.query(ShoppingList).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
         db_.query(MealPlan).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
         db_.query(PantryItem).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
+        # Phase 2: listing_communities -> listings -> (then items below)
+        db_.query(ListingCommunity).delete()
+        db_.query(Listing).delete()
+        # Phase 2: community memberships + join requests + communities
+        db_.query(CommunityMember).delete()
+        db_.query(CommunityJoinRequest).delete()
+        db_.query(Community).delete()
         db_.query(CommunityItem).filter_by(household_id=DEV_HOUSEHOLD_ID).delete()
         # Recipes are not scoped by household, but we wipe ai-generated ones
         # because tests create them freely. User-created recipes (if any) stay.
