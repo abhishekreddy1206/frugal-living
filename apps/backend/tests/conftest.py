@@ -41,6 +41,7 @@ from app.models.community import (
 )
 from app.models.content import ContentItem
 from app.models.core import (
+    AuditLog,
     Event,
     Household,
     HouseholdMember,
@@ -207,6 +208,10 @@ def _clean_household_data():
         # Events are wiped wholesale: some (e.g. content enrichment) have no
         # household_id, and no test depends on pre-existing event rows.
         db_.query(Event).delete()
+        # AuditLog rows are wiped wholesale: Phase 2 community endpoints write
+        # audit rows on every owner action; tests that assert exact counts
+        # need a clean slate (the auth-flow tests opt out of this fixture).
+        db_.query(AuditLog).delete()
         db_.commit()
     yield
 
