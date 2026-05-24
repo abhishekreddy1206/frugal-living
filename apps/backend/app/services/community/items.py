@@ -17,6 +17,12 @@ from app.schemas.community import ITEM_CATEGORIES, ITEM_CONDITIONS
 from app.services.events import emit_event
 
 
+# Avoid a top-level circular import: listings.py imports from this file too.
+def _reconcile_listings(db: Session, *, item: CommunityItem, actor_user_id) -> None:
+    from app.services.community.listings import reconcile_listings_for_item
+    reconcile_listings_for_item(db, item=item, actor_user_id=actor_user_id)
+
+
 class CommunityItemNotFound(Exception):
     """Raised when an item id can't be resolved for the household."""
 
@@ -159,6 +165,8 @@ def update_item(
     if not changed:
         return item  # no-op update — don't emit a spurious event
     db.flush()
+    if "quantity" in changed:
+        _reconcile_listings(db, item=item, actor_user_id=user.id)
 
     emit_event(
         db,
@@ -179,6 +187,7 @@ def soft_delete_item(
     item = _load_owned_item(db, household, item_id)
     item.deleted_at = datetime.now(UTC)
     db.flush()
+    _reconcile_listings(db, item=item, actor_user_id=user.id)
 
     emit_event(
         db,
