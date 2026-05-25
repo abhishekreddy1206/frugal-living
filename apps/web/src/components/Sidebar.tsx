@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { logout, switchHousehold } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import { RoleBadge } from "@/components/RoleBadge";
 
 type NavItem = { href: string; label: string };
 type NavSection = { title: string; items: NavItem[] };
@@ -41,8 +42,29 @@ const SECTIONS: NavSection[] = [
   },
 ];
 
+const ADMIN_BASE_ITEMS: NavItem[] = [
+  { href: "/admin", label: "Home" },
+  { href: "/admin/users", label: "Users" },
+  { href: "/admin/communities", label: "Communities" },
+  { href: "/admin/listings", label: "Listings" },
+  { href: "/admin/audit-log", label: "Audit log" },
+];
+
+const ADMIN_ONLY_ITEMS: NavItem[] = [
+  { href: "/admin/settings", label: "Settings" },
+  { href: "/admin/flags", label: "Flags" },
+  { href: "/admin/banner", label: "Banner" },
+];
+
 export default function Sidebar() {
   const pathname = usePathname();
+  const { user } = useAuth();
+  const role = user?.role ?? null;
+
+  const adminItems: NavItem[] =
+    role === "admin"
+      ? [...ADMIN_BASE_ITEMS, ...ADMIN_ONLY_ITEMS]
+      : ADMIN_BASE_ITEMS;
 
   return (
     <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-line bg-crust">
@@ -69,41 +91,67 @@ export default function Sidebar() {
           <div key={section.title} className="mb-6 last:mb-0">
             <p className="eyebrow mb-2 px-3">{section.title}</p>
             <ul className="space-y-0.5">
-              {section.items.map((item) => {
-                const active = pathname === item.href;
-                return (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      className={`group relative flex items-center gap-2.5 rounded-lg px-3 py-[9px] text-[13.5px] transition-colors ${
-                        active
-                          ? "bg-raised font-semibold text-clay shadow-warm"
-                          : "text-ink-soft hover:bg-paper/70 hover:text-ink"
-                      }`}
-                    >
-                      {active && (
-                        <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-clay" />
-                      )}
-                      <span
-                        className={`h-[5px] w-[5px] shrink-0 rounded-full transition-colors ${
-                          active
-                            ? "bg-clay"
-                            : "bg-ink-faint group-hover:bg-ink-soft"
-                        }`}
-                      />
-                      {item.label}
-                    </Link>
-                  </li>
-                );
-              })}
+              {section.items.map((item) => (
+                <NavLink key={item.href} href={item.href} pathname={pathname}>
+                  {item.label}
+                </NavLink>
+              ))}
             </ul>
           </div>
         ))}
+
+        {/* Admin section — visible to admin and moderator only */}
+        {role && role !== "user" ? (
+          <div className="mb-6 last:mb-0">
+            <p className="eyebrow mb-2 px-3">Admin</p>
+            <ul className="space-y-0.5">
+              {adminItems.map((item) => (
+                <NavLink key={item.href} href={item.href} pathname={pathname}>
+                  {item.label}
+                </NavLink>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </nav>
 
       {/* footer */}
       <SidebarFooter />
     </aside>
+  );
+}
+
+function NavLink({
+  href,
+  pathname,
+  children,
+}: {
+  href: string;
+  pathname: string;
+  children: React.ReactNode;
+}) {
+  const active = pathname === href;
+  return (
+    <li>
+      <Link
+        href={href}
+        className={`group relative flex items-center gap-2.5 rounded-lg px-3 py-[9px] text-[13.5px] transition-colors ${
+          active
+            ? "bg-raised font-semibold text-clay shadow-warm"
+            : "text-ink-soft hover:bg-paper/70 hover:text-ink"
+        }`}
+      >
+        {active && (
+          <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-clay" />
+        )}
+        <span
+          className={`h-[5px] w-[5px] shrink-0 rounded-full transition-colors ${
+            active ? "bg-clay" : "bg-ink-faint group-hover:bg-ink-soft"
+          }`}
+        />
+        {children}
+      </Link>
+    </li>
   );
 }
 
@@ -141,7 +189,10 @@ function SidebarFooter() {
   return (
     <div className="border-t border-line px-6 py-4 space-y-2">
       <div className="text-[12px] text-ink-soft">
-        <div className="font-medium text-ink">{activeHousehold?.name ?? "—"}</div>
+        <div className="flex items-center gap-1.5 font-medium text-ink">
+          {activeHousehold?.name ?? "—"}
+          <RoleBadge role={user.role} />
+        </div>
         <div className="text-[11px] text-ink-faint">{user.email}</div>
       </div>
       {memberships.length > 1 && (
