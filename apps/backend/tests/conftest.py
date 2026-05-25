@@ -57,7 +57,11 @@ from app.models.food import (
     ShoppingList,
 )
 
-# Stable IDs for the second fixture household used in cross-household visibility tests.
+# Stable fixture IDs.
+#   ...0001/0002 — DEV user + household (the default test actor; see app.auth)
+#   ...0011/0012 — SECOND user + household (for cross-household visibility tests)
+#   ...0021      — ADMIN user (role="admin", platform-level admin tests)
+#   ...0031      — MODERATOR user (role="moderator", moderation tests)
 SECOND_USER_ID = _uuid_for_fixture.UUID("00000000-0000-0000-0000-000000000011")
 SECOND_HOUSEHOLD_ID = _uuid_for_fixture.UUID("00000000-0000-0000-0000-000000000012")
 SECOND_USER_EMAIL = "second@frugal-living.local"
@@ -154,6 +158,16 @@ def _seed_test_user_and_household() -> None:
             mod_u.role = "moderator"
             mod_u.is_active = True
 
+        # Mirror the DEV/SECOND/bootstrap_admin pattern: every fixture User gets a
+        # Subscription. Otherwise any future test that combines as_admin/as_moderator
+        # with a route hitting get_current_household will silently break.
+        for uid, plan in ((ADMIN_USER_ID, "suite"), (MODERATOR_USER_ID, "free")):
+            if db_.query(Subscription).filter_by(user_id=uid).one_or_none() is None:
+                db_.add(Subscription(
+                    user_id=uid, plan=plan, status="active",
+                    tier_a_enabled=True, tier_b_enabled=True,
+                ))
+
         db_.commit()
 
 
@@ -184,12 +198,20 @@ def _override_as(user_id):
 
 
 def use_admin_for(test_app):
-    """Test helper: override get_current_user to return the admin fixture user."""
+    """Override get_current_user to return the admin fixture user.
+
+    Note: does NOT restore on teardown. Prefer the `as_admin` fixture unless you
+    control the TestClient lifecycle yourself.
+    """
     from app.auth import get_current_user
     test_app.dependency_overrides[get_current_user] = _override_as(ADMIN_USER_ID)
 
 
 def use_moderator_for(test_app):
+    """Override get_current_user to return the moderator fixture user.
+
+    Same caveat as use_admin_for: caller must reset the override after the test.
+    """
     from app.auth import get_current_user
     test_app.dependency_overrides[get_current_user] = _override_as(MODERATOR_USER_ID)
 
