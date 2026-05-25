@@ -33,6 +33,8 @@ class User(Base, TimestampMixin):
     hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(16), default="user", nullable=False)
+    # "user" | "moderator" | "admin" — enforced by DB CHECK constraint users_role_valid
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, nullable=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     failed_login_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
