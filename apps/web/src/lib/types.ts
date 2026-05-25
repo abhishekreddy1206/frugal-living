@@ -390,3 +390,84 @@ export interface CreateInviteResponse {
   url: string;
   expires_at: string;
 }
+
+// ---------- Community Phase 2 ----------
+
+export type ExchangeType = "borrow" | "swap" | "gift";
+export type AvailabilityStatus = "available" | "paused" | "removed";
+export type CommunityRole = "owner" | "member";
+export type JoinRequestStatus = "pending" | "approved" | "declined" | "withdrawn";
+
+export interface Community {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+}
+
+export interface CommunityPreview {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  member_count: number;
+  your_membership_role: CommunityRole | null;
+  your_join_request_status: JoinRequestStatus | null;
+}
+
+export interface CommunityMembership {
+  community: Community;
+  role: CommunityRole;
+  joined_at: string;
+}
+
+export interface MyCommunitiesResponse {
+  memberships: CommunityMembership[];
+}
+
+export interface JoinRequest {
+  id: string;
+  community_id: string;
+  user_id: string;
+  status: JoinRequestStatus;
+  requested_at: string;
+  decided_at: string | null;
+  decision_note: string | null;
+}
+
+export interface ListingItemSummary {
+  id: string;
+  name: string;
+  category: string;
+  tags: string[];
+  quantity: number;
+  condition: string | null;
+  estimated_value_usd: number | null;
+  photo_url: string | null;
+  notes: string | null;
+}
+
+export interface Listing {
+  id: string;
+  item: ListingItemSummary;
+  allowed_exchange_types: ExchangeType[];
+  quantity_available: number;
+  share_in_radius: boolean;
+  share_radius_miles: number | null;
+  availability_status: AvailabilityStatus;
+  description_override: string | null;
+  community_ids: string[];
+  created_at: string;
+}
+
+export interface FeedRow {
+  listing: Listing;
+  distance_miles: number | null;
+  matched_community_id: string | null;
+}
+
+export interface FeedResponse {
+  rows: FeedRow[];
+  next_cursor: string | null;
+}

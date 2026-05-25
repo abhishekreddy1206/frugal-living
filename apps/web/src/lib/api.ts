@@ -4,18 +4,27 @@ import type {
   BadgeAward,
   Briefing,
   ChatTurnResponse,
+  Community,
+  CommunityMembership,
+  CommunityPreview,
+  CommunityRole,
   ContentFeed,
   ContentItem,
   ConversationOpenResponse,
   CookedResponse,
   CreateInviteResponse,
+  ExchangeType,
+  FeedResponse,
   InventoryItem,
   InvitePreview,
   ItemCaptureResponse,
   ItemCategory,
+  JoinRequest,
   LoginResponse,
+  Listing,
   MealPlan,
   MeResponse,
+  MyCommunitiesResponse,
   PantryCaptureResponse,
   PantryItem,
   PlannedMealStatus,
@@ -460,4 +469,161 @@ export function revokeInvite(
     `/api/v1/auth/households/${household_id}/invites/${invite_id}`,
     { method: "DELETE" },
   );
+}
+
+// ---------- Community Phase 2 ----------
+
+export function createCommunity(args: {
+  slug: string; name: string; description?: string;
+}): Promise<Community> {
+  return api<Community>("/api/v1/community/communities", {
+    method: "POST",
+    body: JSON.stringify(args),
+  });
+}
+
+export function getCommunityPreview(slug: string): Promise<CommunityPreview> {
+  return api<CommunityPreview>(`/api/v1/community/communities/${encodeURIComponent(slug)}`);
+}
+
+export function updateCommunity(
+  communityId: string,
+  args: { name?: string; description?: string },
+): Promise<Community> {
+  return api<Community>(`/api/v1/community/communities/${communityId}`, {
+    method: "PATCH",
+    body: JSON.stringify(args),
+  });
+}
+
+export function deleteCommunity(communityId: string): Promise<{ status: string }> {
+  return api<{ status: string }>(`/api/v1/community/communities/${communityId}`, {
+    method: "DELETE",
+  });
+}
+
+export function leaveCommunity(communityId: string): Promise<{ status: string }> {
+  return api<{ status: string }>(
+    `/api/v1/community/communities/${communityId}/leave`,
+    { method: "POST" },
+  );
+}
+
+export function getMyCommunities(): Promise<MyCommunitiesResponse> {
+  return api<MyCommunitiesResponse>("/api/v1/community/communities/mine");
+}
+
+export function requestToJoin(communityId: string): Promise<JoinRequest> {
+  return api<JoinRequest>(
+    `/api/v1/community/communities/${communityId}/join-requests`,
+    { method: "POST" },
+  );
+}
+
+export function withdrawJoinRequest(
+  communityId: string,
+): Promise<{ status: string }> {
+  return api<{ status: string }>(
+    `/api/v1/community/communities/${communityId}/join-requests/withdraw`,
+    { method: "POST" },
+  );
+}
+
+export function listJoinRequests(communityId: string): Promise<JoinRequest[]> {
+  return api<JoinRequest[]>(
+    `/api/v1/community/communities/${communityId}/join-requests`,
+  );
+}
+
+export function approveJoinRequest(
+  communityId: string,
+  requestId: string,
+): Promise<JoinRequest> {
+  return api<JoinRequest>(
+    `/api/v1/community/communities/${communityId}/join-requests/${requestId}/approve`,
+    { method: "POST" },
+  );
+}
+
+export function declineJoinRequest(
+  communityId: string,
+  requestId: string,
+  note?: string,
+): Promise<JoinRequest> {
+  return api<JoinRequest>(
+    `/api/v1/community/communities/${communityId}/join-requests/${requestId}/decline`,
+    { method: "POST", body: JSON.stringify({ note: note ?? null }) },
+  );
+}
+
+export function createListing(args: {
+  item_id: string;
+  allowed_exchange_types: ExchangeType[];
+  quantity_available: number;
+  community_ids?: string[];
+  share_in_radius?: boolean;
+  share_radius_miles?: number;
+  description_override?: string;
+}): Promise<Listing> {
+  return api<Listing>("/api/v1/community/listings", {
+    method: "POST",
+    body: JSON.stringify({
+      item_id: args.item_id,
+      allowed_exchange_types: args.allowed_exchange_types,
+      quantity_available: args.quantity_available,
+      community_ids: args.community_ids ?? [],
+      share_in_radius: args.share_in_radius ?? false,
+      share_radius_miles: args.share_radius_miles,
+      description_override: args.description_override,
+    }),
+  });
+}
+
+export function updateListing(
+  listingId: string,
+  patch: Partial<{
+    allowed_exchange_types: ExchangeType[];
+    quantity_available: number;
+    community_ids: string[];
+    share_in_radius: boolean;
+    share_radius_miles: number;
+    description_override: string;
+    availability_status: "available" | "paused" | "removed";
+  }>,
+): Promise<Listing> {
+  return api<Listing>(`/api/v1/community/listings/${listingId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteListing(listingId: string): Promise<{ status: string }> {
+  return api<{ status: string }>(`/api/v1/community/listings/${listingId}`, {
+    method: "DELETE",
+  });
+}
+
+export function listMyListings(): Promise<Listing[]> {
+  return api<Listing[]>("/api/v1/community/listings/mine");
+}
+
+export function getListing(listingId: string): Promise<Listing> {
+  return api<Listing>(`/api/v1/community/listings/${listingId}`);
+}
+
+export function getFeed(opts: {
+  community_id?: string;
+  category?: string;
+  radius_miles_max?: number;
+  cursor?: number;
+  limit?: number;
+} = {}): Promise<FeedResponse> {
+  const params = new URLSearchParams();
+  if (opts.community_id) params.set("community_id", opts.community_id);
+  if (opts.category) params.set("category", opts.category);
+  if (opts.radius_miles_max != null) params.set("radius_miles_max", String(opts.radius_miles_max));
+  if (opts.cursor != null) params.set("cursor", String(opts.cursor));
+  if (opts.limit != null) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return api<FeedResponse>(`/api/v1/community/feed${qs ? `?${qs}` : ""}`);
 }
