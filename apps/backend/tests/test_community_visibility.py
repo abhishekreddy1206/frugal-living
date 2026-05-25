@@ -249,3 +249,24 @@ def test_listing_not_visible_after_item_soft_delete(db, second_household, second
         db, viewer_household=second_household, viewer_user=second_user,
     ).all()
     assert listing.id not in [r.id for r in visible]
+
+
+def test_radius_not_visible_when_lister_deactivated(db, second_household, second_user):
+    """Regression: radius path must filter on users.is_active too (audit fix #4 extended)."""
+    from tests.conftest import set_household_location
+    owner = db.get(User, DEV_USER_ID)
+    owner_h = db.get(Household, DEV_HOUSEHOLD_ID)
+    set_household_location(db, owner_h, 40.6782, -73.9442)
+    set_household_location(db, second_household, 40.6796, -73.9442)
+
+    _, listing = _create_shared_listing(
+        db, owner_household=owner_h, owner_user=owner,
+        share_in_radius=True, share_radius_miles=5,
+    )
+    owner.is_active = False
+    db.flush()
+
+    visible = visibility.listings_visible_to(
+        db, viewer_household=second_household, viewer_user=second_user,
+    ).all()
+    assert listing.id not in [r.id for r in visible]

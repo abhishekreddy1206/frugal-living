@@ -126,3 +126,37 @@ def test_feed_empty_when_caller_unconnected(client):
     assert resp.status_code == 200
     # No listings set up for this test → empty rows.
     assert resp.json()["rows"] == []
+
+
+def test_feed_category_filter(client):
+    """Regression: ?category=... must not raise a duplicate-alias 500.
+    Verifies the feed correctly applies category filtering through the visibility helper."""
+    from app.services.community import items as items_svc
+    from app.services.community import listings as listings_svc
+
+    listing_id = _make_listing_in_other_household_shared_to_caller()
+    # Create another listing with a different category in the same community.
+    with SessionLocal() as db:
+        second = db.query(User).filter(User.email == "second@frugal-living.local").one()
+        second_household = db.query(Household).filter(Household.name == "Second Household").one()
+        from app.models.community import Community
+        c = db.query(Community).filter_by(slug="feed-c").one()
+        book_item = items_svc.create_item(
+            db, household=second_household, user=second, name="A Book", quantity=1,
+            category="books",
+        )
+        book_listing = listings_svc.create_listing(
+            db, household=second_household, user=second, item_id=book_item.id,
+            allowed_exchange_types=["borrow"], quantity_available=1,
+            community_ids=[c.id], share_in_radius=False,
+        )
+        db.commit()
+        book_listing_id = book_listing.id
+
+    # Filter to tools category — the original listing was created without an explicit
+    # category in _make_listing_in_other_household_shared_to_caller; default is "other".
+    resp = client.get("/api/v1/community/feed?category=books")
+    assert resp.status_code == 200, resp.text
+    ids = [r["listing"]["id"] for r in resp.json()["rows"]]
+    assert str(book_listing_id) in ids
+    assert str(listing_id) not in ids  # category filter excludes the "other" listing

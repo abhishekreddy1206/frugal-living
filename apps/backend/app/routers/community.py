@@ -7,6 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel as _BaseModel
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentHousehold, CurrentUser
@@ -645,9 +646,20 @@ def feed_endpoint(
     # Order by listing recency (newest first).
     q = q.order_by(Listing.created_at.desc())
 
+    # Category filter: CommunityItem is already joined inside the visibility helper,
+    # so just filter on it directly (re-joining causes a duplicate-alias error).
     if category is not None:
-        q = q.join(CommunityItem, CommunityItem.id == Listing.item_id).filter(
-            CommunityItem.category == category
+        q = q.filter(CommunityItem.category == category)
+
+    # community_id filter: push into SQL via an EXISTS so pagination is consistent.
+    if community_id is not None:
+        q = q.filter(
+            exists(
+                select(1).where(
+                    ListingCommunity.listing_id == Listing.id,
+                    ListingCommunity.community_id == community_id,
+                )
+            )
         )
 
     rows: list[FeedRow] = []
@@ -659,16 +671,19 @@ def feed_endpoint(
             continue
         owner_h = db.get(Household, item.household_id)
         distance = distance_for(household, owner_h) if owner_h else None
-        # Optional caller-side max-distance cap on radius rows.
+        # Optional caller-side max-distance cap on radius rows. Only applies when
+        # the listing matched purely via the radius path (share_in_radius=True);
+        # a community-path match is unaffected.
         if (
-            distance is not None
+            listing.share_in_radius
+            and distance is not None
             and radius_miles_max is not None
             and distance > radius_miles_max
         ):
             continue
 
         # Did this row match via a shared community?
-        community_match = None
+        community_match: uuid.UUID | None = None
         if community_id is not None:
             # If the caller filtered to a specific community, the match IS that one.
             community_match = community_id
@@ -695,22 +710,6 @@ def feed_endpoint(
         ))
 
     next_cursor = str(cursor + limit) if has_more else None
-    # If caller filtered by community_id, narrow to listings actually in that community.
-    if community_id is not None:
-        rows = [
-            r for r in rows
-            if any(
-                lc.community_id == community_id
-                for lc in db.query(ListingCommunity).filter_by(
-                    listing_id=(
-                        uuid.UUID(r.listing.id)
-                        if isinstance(r.listing.id, str)
-                        else r.listing.id
-                    ),
-                ).all()
-            )
-        ]
-
     return FeedResponse(rows=rows, next_cursor=next_cursor)
 
 

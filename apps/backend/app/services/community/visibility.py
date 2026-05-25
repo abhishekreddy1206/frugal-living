@@ -145,6 +145,21 @@ def listings_visible_to(
     lat_expr = OwnerHousehold.metadata_["lat"].astext.cast(Float)
     lng_expr = OwnerHousehold.metadata_["lng"].astext.cast(Float)
 
+    # The radius path also requires at least one *active* member of the owning
+    # household — a deactivated lister's listings must not leak via radius.
+    # (Mirrors the community-path users.is_active filter — extends audit fix #4.)
+    OwnerHMRadius = aliased(HouseholdMember)
+    OwnerUserRadius = aliased(User)
+    active_owner_exists = exists(
+        select(1)
+        .select_from(OwnerHMRadius)
+        .join(OwnerUserRadius, OwnerUserRadius.id == OwnerHMRadius.user_id)
+        .where(
+            OwnerHMRadius.household_id == CommunityItem.household_id,
+            OwnerUserRadius.is_active.is_(True),
+        )
+    )
+
     box_subq = (
         db.query(Listing.id)
         .join(CommunityItem, CommunityItem.id == Listing.item_id)
@@ -159,6 +174,7 @@ def listings_visible_to(
             Listing.availability_status == "available",
             CommunityItem.deleted_at.is_(None),
             CommunityItem.household_id != viewer_household.id,
+            active_owner_exists,
         )
         .subquery()
     )
