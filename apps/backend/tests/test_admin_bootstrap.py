@@ -6,7 +6,7 @@ import uuid
 import pytest
 
 from app.db import SessionLocal
-from app.models.core import AuditLog, Household, HouseholdMember, User
+from app.models.core import AuditLog, Household, HouseholdMember, Subscription, User
 from app.services.admin.bootstrap import bootstrap_admin
 
 
@@ -15,10 +15,14 @@ def fresh_email() -> str:
     return f"admin-{uuid.uuid4().hex[:8]}@test.local"
 
 
-def test_bootstrap_noop_when_email_unset(db, fresh_email):
-    before = db.query(User).count()
-    bootstrap_admin(db, email=None, password="x", display_name=None)
-    assert db.query(User).count() == before
+def test_bootstrap_noop_when_email_unset(fresh_email):
+    # Use SessionLocal like the other tests so the fixture contract is consistent —
+    # if bootstrap ever starts committing, the rollback-based `db` fixture would
+    # hide regressions while the SessionLocal-based tests would catch them.
+    with SessionLocal() as db_:
+        before = db_.query(User).count()
+        bootstrap_admin(db_, email=None, password="x", display_name=None)
+        assert db_.query(User).count() == before
 
 
 def test_bootstrap_creates_user_when_missing(fresh_email):
@@ -36,6 +40,12 @@ def test_bootstrap_creates_user_when_missing(fresh_email):
         assert membership.role == "owner"
         hh = db_.get(Household, membership.household_id)
         assert hh.name == "Boss's Household"
+        # Subscription mirrors the signup flow (every User gets one)
+        sub = db_.query(Subscription).filter_by(user_id=u.id).one()
+        assert sub.plan == "suite"
+        assert sub.tier_a_enabled is True
+        assert sub.tier_b_enabled is True
+        assert sub.tier_s_enabled is True
         # Audit row written
         audit = db_.query(AuditLog).filter_by(action="admin.bootstrap.created").all()
         assert any(a.payload.get("email") == fresh_email for a in audit)

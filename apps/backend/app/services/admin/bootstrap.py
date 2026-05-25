@@ -5,7 +5,7 @@ import logging
 
 from sqlalchemy.orm import Session as DbSession
 
-from app.models.core import AuditLog, Household, HouseholdMember, User
+from app.models.core import AuditLog, Household, HouseholdMember, Subscription, User
 from app.services.auth.passwords import hash_password
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,12 @@ def bootstrap_admin(
         db.add(household)
         db.flush()
         db.add(HouseholdMember(user_id=user.id, household_id=household.id, role="owner"))
+        # Mirror the signup flow: every User gets a Subscription row. Bootstrap admin
+        # is on the suite plan with every tier enabled (the operator owns the system).
+        db.add(Subscription(
+            user_id=user.id, plan="suite", status="active",
+            tier_a_enabled=True, tier_b_enabled=True, tier_s_enabled=True,
+        ))
         db.add(AuditLog(
             actor_user_id=user.id,
             action="admin.bootstrap.created",
