@@ -55,8 +55,10 @@ def upgrade() -> None:
 
     op.create_table(
         "feature_flag_overrides",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
+        # PK defaulted on the Python side via the SA model's default=uuid.uuid4,
+        # matching every other UUID PK in this codebase. Avoids any implicit
+        # dependency on gen_random_uuid() / pgcrypto.
+        sa.Column("id", UUID(as_uuid=True), primary_key=True),
         sa.Column("flag_key", sa.String(length=120),
                   sa.ForeignKey("core.feature_flags.key", ondelete="CASCADE"),
                   nullable=False),
