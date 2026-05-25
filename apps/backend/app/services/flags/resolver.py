@@ -23,10 +23,17 @@ def is_enabled(
     if flag is None:
         return False
 
+    # XOR check constraint already forbids rows with both columns set, but explicit
+    # `.is_(None)` filters mirror the partial unique index predicates so the planner
+    # uses them, and the intent is obvious in the query.
     if user:
         ov = (
             db.query(FeatureFlagOverride)
-            .filter_by(flag_key=key, user_id=user.id)
+            .filter(
+                FeatureFlagOverride.flag_key == key,
+                FeatureFlagOverride.user_id == user.id,
+                FeatureFlagOverride.household_id.is_(None),
+            )
             .first()
         )
         if ov is not None:
@@ -35,7 +42,11 @@ def is_enabled(
     if household:
         ov = (
             db.query(FeatureFlagOverride)
-            .filter_by(flag_key=key, household_id=household.id)
+            .filter(
+                FeatureFlagOverride.flag_key == key,
+                FeatureFlagOverride.household_id == household.id,
+                FeatureFlagOverride.user_id.is_(None),
+            )
             .first()
         )
         if ov is not None:
