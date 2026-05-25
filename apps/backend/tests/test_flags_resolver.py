@@ -1,5 +1,5 @@
 """is_enabled: user > household > global > rollout_percent > default off."""
-from datetime import UTC
+from datetime import UTC, datetime
 
 from app.auth import DEV_HOUSEHOLD_ID, DEV_USER_ID
 from app.models.core import (
@@ -79,7 +79,6 @@ def test_rollout_ignored_without_user(db):
 
 
 def test_deleted_flag_returns_false(db):
-    from datetime import datetime
     user = db.get(User, DEV_USER_ID)
     db.add(FeatureFlag(
         key="ff.gone", enabled_globally=True,
