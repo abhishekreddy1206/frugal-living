@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session as DbSession
 from app.config import settings
 from app.db import get_db
 from app.models.core import Household, HouseholdMember, User
+from app.services.admin.bootstrap import bootstrap_admin
 from app.services.auth.permissions import is_admin, is_at_least_moderator
 from app.services.auth.sessions import get_session_by_raw_token
 from app.services.ingredients import seed_starter_ingredients
@@ -42,10 +43,17 @@ def seed_reference_data(db: DbSession) -> None:
     """Seed global, not-user-specific reference data on app startup.
 
     Replaces the old `seed_dev_fixtures` — the dev user/household auto-seed is
-    gone; new users sign up through the UI.
+    gone; new users sign up through the UI. Also bootstraps the optional admin
+    account from ADMIN_EMAIL/ADMIN_PASSWORD env vars (no-op when unset).
     """
     seed_starter_ingredients(db)
     seed_badge_definitions(db)
+    bootstrap_admin(
+        db,
+        email=settings.admin_email,
+        password=settings.admin_password,
+        display_name=settings.admin_display_name,
+    )
 
 
 def get_current_user(

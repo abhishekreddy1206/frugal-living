@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     login_lockout_threshold: int = 5
     login_lockout_minutes: int = 15
 
+    # Admin bootstrap — leave empty in production unless you want a default admin seeded.
+    admin_email: str | None = None
+    admin_password: str | None = None
+    admin_display_name: str | None = None
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
 
