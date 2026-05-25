@@ -30,8 +30,11 @@ def test_public_settings_are_global_only():
 
 
 def test_known_seeded_keys_present():
-    for k in ("signups_open", "maintenance_message", "default_ai_model",
-              "briefing_hour_local", "theme", "email_notifications"):
+    for k in (
+        "signups_open", "maintenance_message", "llm_cli_concurrency",
+        "default_ai_model", "briefing_hour_local", "pantry_expiry_warn_days",
+        "theme", "email_notifications",
+    ):
         assert k in SETTING_REGISTRY
 
 
