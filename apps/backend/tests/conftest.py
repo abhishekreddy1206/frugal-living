@@ -62,6 +62,12 @@ SECOND_USER_ID = _uuid_for_fixture.UUID("00000000-0000-0000-0000-000000000011")
 SECOND_HOUSEHOLD_ID = _uuid_for_fixture.UUID("00000000-0000-0000-0000-000000000012")
 SECOND_USER_EMAIL = "second@frugal-living.local"
 
+ADMIN_USER_ID = _uuid_for_fixture.UUID("00000000-0000-0000-0000-000000000021")
+ADMIN_USER_EMAIL = "admin@frugal-living.local"
+
+MODERATOR_USER_ID = _uuid_for_fixture.UUID("00000000-0000-0000-0000-000000000031")
+MODERATOR_USER_EMAIL = "moderator@frugal-living.local"
+
 
 def _seed_test_user_and_household() -> None:
     """Seed the test User + Household + HouseholdMember + Subscription with stable IDs.
@@ -126,6 +132,28 @@ def _seed_test_user_and_household() -> None:
                 tier_a_enabled=True, tier_b_enabled=True,
             ))
 
+        admin_u = db_.get(User, ADMIN_USER_ID)
+        if admin_u is None:
+            db_.add(User(
+                id=ADMIN_USER_ID, email=ADMIN_USER_EMAIL,
+                display_name="Admin User", role="admin", is_active=True,
+            ))
+            db_.flush()
+        else:
+            admin_u.role = "admin"
+            admin_u.is_active = True
+
+        mod_u = db_.get(User, MODERATOR_USER_ID)
+        if mod_u is None:
+            db_.add(User(
+                id=MODERATOR_USER_ID, email=MODERATOR_USER_EMAIL,
+                display_name="Moderator User", role="moderator", is_active=True,
+            ))
+            db_.flush()
+        else:
+            mod_u.role = "moderator"
+            mod_u.is_active = True
+
         db_.commit()
 
 
@@ -146,6 +174,24 @@ def _override_get_current_user():
 def _override_get_current_household():
     with SessionLocal() as db_:
         return db_.get(Household, DEV_HOUSEHOLD_ID)
+
+
+def _override_as(user_id):
+    def _inner():
+        with SessionLocal() as db_:
+            return db_.get(User, user_id)
+    return _inner
+
+
+def use_admin_for(test_app):
+    """Test helper: override get_current_user to return the admin fixture user."""
+    from app.auth import get_current_user
+    test_app.dependency_overrides[get_current_user] = _override_as(ADMIN_USER_ID)
+
+
+def use_moderator_for(test_app):
+    from app.auth import get_current_user
+    test_app.dependency_overrides[get_current_user] = _override_as(MODERATOR_USER_ID)
 
 
 @pytest.fixture(autouse=True)
@@ -244,6 +290,46 @@ def second_user(db) -> User:
     u = db.get(User, SECOND_USER_ID)
     assert u is not None
     return u
+
+
+@pytest.fixture
+def admin_user(db) -> User:
+    u = db.get(User, ADMIN_USER_ID)
+    assert u is not None and u.role == "admin"
+    return u
+
+
+@pytest.fixture
+def moderator_user(db) -> User:
+    u = db.get(User, MODERATOR_USER_ID)
+    assert u is not None and u.role == "moderator"
+    return u
+
+
+@pytest.fixture
+def as_admin():
+    """Context-manager fixture: makes get_current_user resolve to the admin user
+    for the duration of the test. Restores the previous override on teardown."""
+    from app.auth import get_current_user
+    prev = app.dependency_overrides.get(get_current_user)
+    app.dependency_overrides[get_current_user] = _override_as(ADMIN_USER_ID)
+    yield
+    if prev is None:
+        app.dependency_overrides.pop(get_current_user, None)
+    else:
+        app.dependency_overrides[get_current_user] = prev
+
+
+@pytest.fixture
+def as_moderator():
+    from app.auth import get_current_user
+    prev = app.dependency_overrides.get(get_current_user)
+    app.dependency_overrides[get_current_user] = _override_as(MODERATOR_USER_ID)
+    yield
+    if prev is None:
+        app.dependency_overrides.pop(get_current_user, None)
+    else:
+        app.dependency_overrides[get_current_user] = prev
 
 
 def set_household_location(db, household: Household, lat: float, lng: float) -> None:
