@@ -1,7 +1,7 @@
 """admin role on users
 
-Revision ID: 0006_admin_role
-Revises: 0005_community_listings
+Revision ID: 0006
+Revises: 0005
 Create Date: 2026-05-24
 """
 from alembic import op
