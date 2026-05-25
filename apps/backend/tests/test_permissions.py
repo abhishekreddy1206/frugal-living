@@ -1,5 +1,5 @@
 """Pure-function tests for permission helpers — no DB required."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.models.core import User
 from app.services.auth.permissions import (
@@ -14,8 +14,8 @@ def _user(role: str, active: bool = True) -> User:
         email=f"{role}@test.local",
         role=role,
         is_active=active,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
 
 

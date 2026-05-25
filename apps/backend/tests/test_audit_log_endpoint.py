@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -15,7 +15,7 @@ def _seed_audit(*, action, days_ago=0):
         db_.add(AuditLog(
             actor_user_id=DEV_USER_ID,
             action=action, target_type="x", target_id=None, payload={},
-            created_at=datetime.now(timezone.utc) - timedelta(days=days_ago),
+            created_at=datetime.now(UTC) - timedelta(days=days_ago),
         ))
         db_.commit()
 

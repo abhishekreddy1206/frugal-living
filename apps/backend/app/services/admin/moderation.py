@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session as DbSession
 
-from app.models.community import Community, Listing
+from app.models.community import Community, CommunityItem, Listing
 from app.models.core import AuditLog, Event, User
 
 
@@ -38,6 +38,14 @@ def restore_community(db: DbSession, *, community: Community, reason: str, actor
     ))
 
 
+def _listing_household_id(db: DbSession, listing: Listing):
+    """Listing has no household_id of its own; the owning household lives on the
+    related CommunityItem. Returns None if the item lookup somehow fails (shouldn't
+    in normal flow but defensive)."""
+    item = db.get(CommunityItem, listing.item_id)
+    return item.household_id if item is not None else None
+
+
 def take_down_listing(db: DbSession, *, listing: Listing, reason: str, actor: User) -> None:
     if listing.deleted_at is None:
         listing.deleted_at = datetime.now(UTC)
@@ -48,6 +56,7 @@ def take_down_listing(db: DbSession, *, listing: Listing, reason: str, actor: Us
         payload={"reason": reason},
     ))
     db.add(Event(
+        household_id=_listing_household_id(db, listing),
         user_id=actor.id, event_type="admin.listing.taken_down",
         entity_type="listing", entity_id=listing.id,
         payload={"reason": reason},
@@ -66,6 +75,7 @@ def restore_listing(db: DbSession, *, listing: Listing, reason: str, actor: User
         payload={"reason": reason},
     ))
     db.add(Event(
+        household_id=_listing_household_id(db, listing),
         user_id=actor.id, event_type="admin.listing.restored",
         entity_type="listing", entity_id=listing.id,
         payload={"reason": reason},
