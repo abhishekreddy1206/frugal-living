@@ -203,4 +203,5 @@ def list_my_communities(db: Session, *, user: User) -> list[tuple[Community, Com
         .order_by(Community.name)
         .all()
     )
-    return rows
+    # SQLAlchemy 2.x returns Row[...] objects; convert to plain tuples for the type annotation.
+    return [(c, m) for c, m in rows]

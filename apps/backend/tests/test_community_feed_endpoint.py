@@ -1,8 +1,6 @@
 """Feed endpoint — funnels through the visibility helper end-to-end."""
 from __future__ import annotations
 
-import uuid
-
 import pytest
 from fastapi.testclient import TestClient
 

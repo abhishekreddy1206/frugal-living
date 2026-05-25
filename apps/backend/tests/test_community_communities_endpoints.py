@@ -98,7 +98,6 @@ def test_leave_community_as_member(client):
     created = client.post(
         "/api/v1/community/communities", json={"slug": "lv1", "name": "lv1"},
     ).json()
-    from app.auth import DEV_USER_ID
     from app.db import SessionLocal
     from app.models.community import Community, CommunityMember
     with SessionLocal() as db:

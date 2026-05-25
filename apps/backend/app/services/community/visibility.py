@@ -169,7 +169,11 @@ def listings_visible_to(
     radius_passing_ids: list = []
     for listing in box_candidates:
         item = db.get(CommunityItem, listing.item_id)
+        if item is None:
+            continue
         owner_h = db.get(Household, item.household_id)
+        if owner_h is None:
+            continue
         owner_loc = _household_lat_lng(owner_h)
         if owner_loc is None:
             continue

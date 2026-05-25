@@ -124,7 +124,7 @@ def approve_request(
             decided_by_user_id=owner_user.id,
         )
     )
-    if result.rowcount == 0:
+    if result.rowcount == 0:  # type: ignore[attr-defined]
         raise AlreadyDecided("approved-or-already-decided")
 
     # Create membership (idempotent against the unique constraint — if a race
@@ -185,7 +185,7 @@ def decline_request(
             decision_note=note,
         )
     )
-    if result.rowcount == 0:
+    if result.rowcount == 0:  # type: ignore[attr-defined]
         raise AlreadyDecided("declined-or-already-decided")
 
     db.refresh(request)
