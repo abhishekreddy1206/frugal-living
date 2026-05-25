@@ -611,6 +611,15 @@ export function getListing(listingId: string): Promise<Listing> {
   return api<Listing>(`/api/v1/community/listings/${listingId}`);
 }
 
+export function setHouseholdLocation(args: {
+  lat: number; lng: number; share_radius_miles?: number;
+}): Promise<{ status: string }> {
+  return api<{ status: string }>("/api/v1/community/household/location", {
+    method: "POST",
+    body: JSON.stringify(args),
+  });
+}
+
 export function getFeed(opts: {
   community_id?: string;
   category?: string;

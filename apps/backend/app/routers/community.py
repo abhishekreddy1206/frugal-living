@@ -6,6 +6,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel as _BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentHousehold, CurrentUser
@@ -711,3 +712,39 @@ def feed_endpoint(
         ]
 
     return FeedResponse(rows=rows, next_cursor=next_cursor)
+
+
+# ---------------------------------------------------------------------------
+# Household location
+# ---------------------------------------------------------------------------
+
+
+class _HouseholdLocationRequest(_BaseModel):
+    lat: float
+    lng: float
+    share_radius_miles: int | None = None
+
+
+@router.post("/household/location")
+def set_household_location_endpoint(
+    request: _HouseholdLocationRequest,
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    """Update the active household's lat/lng (stored in metadata_).
+    Only the household owner/member may set this (`viewer` cannot)."""
+    from app.services.community.listings import NotHouseholdMember, _require_household_member
+    try:
+        _require_household_member(db, user=user, household=household)
+    except NotHouseholdMember:
+        raise HTTPException(status_code=403, detail="must be a household owner or member") from None
+    md = dict(household.metadata_ or {})
+    md["lat"] = float(request.lat)
+    md["lng"] = float(request.lng)
+    if request.share_radius_miles is not None:
+        md["share_radius_miles"] = int(request.share_radius_miles)
+    household.metadata_ = md
+    db.flush()
+    db.commit()
+    return {"status": "set"}

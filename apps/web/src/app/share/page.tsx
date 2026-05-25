@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getFeed, getMyCommunities } from "@/lib/api";
+import LocationSetup from "@/components/LocationSetup";
 import type { CommunityMembership, FeedResponse } from "@/lib/types";
 
 const CATEGORIES = [
@@ -44,6 +45,24 @@ export default function SharePage() {
         <h1 className="text-3xl font-bold text-ink">Share</h1>
         <p className="text-stone-600 mt-1">Items neighbors and community members have offered.</p>
       </header>
+
+      {typeof window !== "undefined" && localStorage.getItem("hid_location_banner") !== "1" && (
+        <div className="mb-6">
+          <LocationSetup onSaved={() => {
+            localStorage.setItem("hid_location_banner", "1");
+            load();
+          }} />
+          <button
+            onClick={() => {
+              localStorage.setItem("hid_location_banner", "1");
+              setFeed((f) => f && { ...f });
+            }}
+            className="mt-2 text-[11px] text-stone-500 underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <section className="mb-6 flex flex-wrap gap-3">
         <select

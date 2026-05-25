@@ -85,6 +85,14 @@ def test_get_my_communities(client):
     assert "m1" in slugs and "m2" in slugs
 
 
+def test_set_household_location(client):
+    resp = client.post(
+        "/api/v1/community/household/location",
+        json={"lat": 40.6782, "lng": -73.9442},
+    )
+    assert resp.status_code == 200
+
+
 def test_leave_community_as_member(client):
     """Need a second user to demote; for the unit test we use the service layer to demote first."""
     created = client.post(
