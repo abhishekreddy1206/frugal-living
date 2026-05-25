@@ -101,7 +101,16 @@ def set_setting(
             db.add(UserSetting(user_id=scope_id, key=key, value=value))
         else:
             row.value = value
+            # UserSetting has no updated_by_user_id column; the actor is in the AuditLog row.
+    else:
+        # Defensive: the registry check above guards against unknown scopes when the
+        # registry agrees they're not allowed, but a typo'd scope that *happens* to be
+        # in a multi-scope setting's `scopes` tuple would slip through silently. Catching
+        # it here keeps the audit log honest (no "I set it" entry when no row was written).
+        raise ValueError(f"unknown scope: {scope}")
 
+    # NOTE: if sensitive settings are ever added to the registry, filter or redact
+    # the value here before logging.
     db.add(AuditLog(
         actor_user_id=actor.id,
         action="admin.setting.set",
@@ -123,7 +132,11 @@ def clear_setting(
     scope_id: uuid.UUID | None,
     actor: User,
 ) -> None:
-    """Delete a setting at the given scope (returns to next-layer-down resolution)."""
+    """Delete a setting at the given scope (returns to next-layer-down resolution).
+
+    No-ops silently when the row doesn't exist — clearing an unset key is harmless.
+    """
+    _ = SETTING_REGISTRY[key]  # KeyError on unknown key (programmer bug)
     if scope == "global":
         row = db.get(AppSettingKv, key)
     elif scope == "household":

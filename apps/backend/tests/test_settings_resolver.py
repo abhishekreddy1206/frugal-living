@@ -8,7 +8,7 @@ from app.models.core import (
     User,
     UserSetting,
 )
-from app.services.settings.resolver import get_setting, set_setting
+from app.services.settings.resolver import clear_setting, get_setting, set_setting
 
 
 def test_default_when_no_override(db):
@@ -87,3 +87,34 @@ def test_unknown_key_raises(db):
     user = db.get(User, DEV_USER_ID)
     with pytest.raises(KeyError):
         get_setting(db, "nonexistent_key", user=user)
+
+
+def test_clear_setting_writes_audit_log(db):
+    from app.models.core import AuditLog
+    user = db.get(User, DEV_USER_ID)
+    # Seed a value, then clear it
+    set_setting(db, "signups_open", False, scope="global", scope_id=None, actor=user)
+    db.flush()
+    clear_setting(db, "signups_open", scope="global", scope_id=None, actor=user)
+    db.flush()
+    rows = db.query(AuditLog).filter_by(action="admin.setting.cleared").all()
+    assert any(r.payload.get("key") == "signups_open" for r in rows)
+
+
+def test_clear_setting_noop_when_row_missing(db):
+    from app.models.core import AuditLog
+    user = db.get(User, DEV_USER_ID)
+    before = db.query(AuditLog).filter_by(action="admin.setting.cleared").count()
+    # Clearing a key that was never set must not raise and must not audit
+    clear_setting(db, "theme", scope="user", scope_id=user.id, actor=user)
+    db.flush()
+    after = db.query(AuditLog).filter_by(action="admin.setting.cleared").count()
+    assert after == before
+
+
+def test_set_setting_rejects_unknown_scope_value(db):
+    """A typo'd scope that happens to be in a multi-scope setting's tuple shouldn't slip."""
+    user = db.get(User, DEV_USER_ID)
+    with pytest.raises(ValueError, match="not overridable at typo scope|unknown scope"):
+        # briefing_hour_local has all 3 scopes; "typo" isn't one of them
+        set_setting(db, "briefing_hour_local", 9, scope="typo", scope_id=None, actor=user)
