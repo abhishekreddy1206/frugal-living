@@ -224,3 +224,80 @@ class HouseholdInvite(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, nullable=False)
+
+
+class AppSettingKv(Base):
+    """Global app settings key/value store. Configuration, not domain data —
+    deliberate Rule-3/Rule-4 deviation: no metadata_, no deleted_at. Lifecycle
+    is via DELETE; history lives in core.audit_log."""
+    __tablename__ = "app_settings_kv"
+    __table_args__ = {"schema": "core"}
+
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("core.users.id"), nullable=True
+    )
+
+
+class HouseholdSetting(Base):
+    """Per-household setting override. Same Rule-3/4 deviation as AppSettingKv."""
+    __tablename__ = "household_settings"
+    __table_args__ = {"schema": "core"}
+
+    household_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("core.households.id"), primary_key=True
+    )
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("core.users.id"), nullable=True
+    )
+
+
+class UserSetting(Base):
+    """Per-user setting override. Same Rule-3/4 deviation as AppSettingKv."""
+    __tablename__ = "user_settings"
+    __table_args__ = {"schema": "core"}
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("core.users.id"), primary_key=True
+    )
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class FeatureFlagOverride(Base):
+    """Per-household or per-user override for a FeatureFlag. XOR on scope columns."""
+    __tablename__ = "feature_flag_overrides"
+    __table_args__ = {"schema": "core"}
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    flag_key: Mapped[str] = mapped_column(
+        String(120), ForeignKey("core.feature_flags.key", ondelete="CASCADE"), nullable=False
+    )
+    household_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("core.households.id"), nullable=True
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("core.users.id"), nullable=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("core.users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

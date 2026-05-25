@@ -41,12 +41,16 @@ from app.models.community import (
 )
 from app.models.content import ContentItem
 from app.models.core import (
+    AppSettingKv,
     AuditLog,
     Event,
+    FeatureFlagOverride,
     Household,
     HouseholdMember,
+    HouseholdSetting,
     Subscription,
     User,
+    UserSetting,
 )
 from app.models.food import (
     FoodWasteEvent,
@@ -280,6 +284,10 @@ def _clean_household_data():
         # audit rows on every owner action; tests that assert exact counts
         # need a clean slate (the auth-flow tests opt out of this fixture).
         db_.query(AuditLog).delete()
+        db_.query(FeatureFlagOverride).delete()
+        db_.query(UserSetting).delete()
+        db_.query(HouseholdSetting).delete()
+        db_.query(AppSettingKv).delete()
         db_.commit()
     yield
 
