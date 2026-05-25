@@ -42,6 +42,7 @@ class UserRead(BaseModel):
     id: uuid.UUID
     email: str
     display_name: str | None
+    role: str  # "user" | "moderator" | "admin"
 
 
 class HouseholdRead(BaseModel):

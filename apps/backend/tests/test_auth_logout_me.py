@@ -70,6 +70,18 @@ def test_me_returns_user_memberships_and_active_household():
         _cleanup("ed@example.com")
 
 
+def test_me_returns_role():
+    c = _signup_and_client()
+    try:
+        resp = c.get("/api/v1/auth/me")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "role" in body["user"]
+        assert body["user"]["role"] == "user"  # default role for a newly-signed-up user
+    finally:
+        _cleanup("ed@example.com")
+
+
 def test_me_without_cookie_returns_401():
     c = TestClient(app)
     resp = c.get("/api/v1/auth/me")
