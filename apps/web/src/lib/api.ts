@@ -1,4 +1,11 @@
 import type {
+  AdminCommunityDetail,
+  AdminCommunityRow,
+  AdminListingDetail,
+  AdminListingRow,
+  AdminUserDetail,
+  AdminUserRow,
+  AuditLogEntry,
   AuthHousehold,
   AuthUser,
   BadgeAward,
@@ -14,7 +21,10 @@ import type {
   CookedResponse,
   CreateInviteResponse,
   ExchangeType,
+  FeatureFlag,
+  FeatureFlagDetail,
   FeedResponse,
+  GlobalSettingRow,
   InventoryItem,
   InvitePreview,
   ItemCaptureResponse,
@@ -35,7 +45,10 @@ import type {
   PreservationMethodInfo,
   PurchasedItemResponse,
   RecipeSuggestionsResponse,
+  RegistryEntry,
+  RuntimeConfig,
   SavingsRollup,
+  SettingDetail,
   ShoppingList,
   SignupResponse,
   Streak,
@@ -635,4 +648,266 @@ export function getFeed(opts: {
   if (opts.limit != null) params.set("limit", String(opts.limit));
   const qs = params.toString();
   return api<FeedResponse>(`/api/v1/community/feed${qs ? `?${qs}` : ""}`);
+}
+
+// ---------- Runtime config (public, no auth) ----------
+
+export function getRuntimeConfig(): Promise<RuntimeConfig> {
+  return api<RuntimeConfig>("/api/v1/runtime-config");
+}
+
+// ---------- Admin: settings ----------
+
+export function listAdminSettings(): Promise<GlobalSettingRow[]> {
+  return api<GlobalSettingRow[]>("/api/v1/admin/settings");
+}
+
+export function getAdminSettingsRegistry(): Promise<Record<string, RegistryEntry>> {
+  return api<Record<string, RegistryEntry>>("/api/v1/admin/settings/registry");
+}
+
+export function getAdminSetting(key: string): Promise<SettingDetail> {
+  return api<SettingDetail>(`/api/v1/admin/settings/${encodeURIComponent(key)}`);
+}
+
+export function setAdminSettingGlobal(key: string, value: unknown): Promise<unknown> {
+  return api(`/api/v1/admin/settings/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    body: JSON.stringify({ value }),
+  });
+}
+
+export function clearAdminSettingGlobal(key: string): Promise<unknown> {
+  return api(`/api/v1/admin/settings/${encodeURIComponent(key)}`, { method: "DELETE" });
+}
+
+export function setAdminSettingHousehold(
+  key: string,
+  hid: string,
+  value: unknown,
+): Promise<unknown> {
+  return api(`/api/v1/admin/settings/${encodeURIComponent(key)}/household/${hid}`, {
+    method: "PUT",
+    body: JSON.stringify({ value }),
+  });
+}
+
+export function clearAdminSettingHousehold(key: string, hid: string): Promise<unknown> {
+  return api(
+    `/api/v1/admin/settings/${encodeURIComponent(key)}/household/${hid}`,
+    { method: "DELETE" },
+  );
+}
+
+export function setAdminSettingUser(
+  key: string,
+  uid: string,
+  value: unknown,
+): Promise<unknown> {
+  return api(`/api/v1/admin/settings/${encodeURIComponent(key)}/user/${uid}`, {
+    method: "PUT",
+    body: JSON.stringify({ value }),
+  });
+}
+
+export function clearAdminSettingUser(key: string, uid: string): Promise<unknown> {
+  return api(
+    `/api/v1/admin/settings/${encodeURIComponent(key)}/user/${uid}`,
+    { method: "DELETE" },
+  );
+}
+
+// ---------- Admin: feature flags ----------
+
+export function listAdminFlags(): Promise<FeatureFlag[]> {
+  return api<FeatureFlag[]>("/api/v1/admin/flags");
+}
+
+export function getAdminFlag(key: string): Promise<FeatureFlagDetail> {
+  return api<FeatureFlagDetail>(`/api/v1/admin/flags/${encodeURIComponent(key)}`);
+}
+
+export function createAdminFlag(body: {
+  key: string;
+  description?: string;
+  enabled_globally?: boolean;
+  rollout_percent?: number;
+}): Promise<FeatureFlag> {
+  return api<FeatureFlag>("/api/v1/admin/flags", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchAdminFlag(
+  key: string,
+  body: {
+    description?: string;
+    enabled_globally?: boolean;
+    rollout_percent?: number;
+  },
+): Promise<FeatureFlag> {
+  return api<FeatureFlag>(`/api/v1/admin/flags/${encodeURIComponent(key)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteAdminFlag(key: string): Promise<unknown> {
+  return api(`/api/v1/admin/flags/${encodeURIComponent(key)}`, { method: "DELETE" });
+}
+
+export function setAdminFlagHouseholdOverride(
+  key: string,
+  hid: string,
+  enabled: boolean,
+): Promise<unknown> {
+  return api(`/api/v1/admin/flags/${encodeURIComponent(key)}/household/${hid}`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export function setAdminFlagUserOverride(
+  key: string,
+  uid: string,
+  enabled: boolean,
+): Promise<unknown> {
+  return api(`/api/v1/admin/flags/${encodeURIComponent(key)}/user/${uid}`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+// ---------- Admin: users ----------
+
+export function listAdminUsers(
+  params: { q?: string; role?: string; active?: boolean } = {},
+): Promise<AdminUserRow[]> {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set("q", params.q);
+  if (params.role) qs.set("role", params.role);
+  if (params.active !== undefined) qs.set("active", String(params.active));
+  const qstr = qs.toString();
+  return api<AdminUserRow[]>(`/api/v1/admin/users${qstr ? `?${qstr}` : ""}`);
+}
+
+export function getAdminUser(id: string): Promise<AdminUserDetail> {
+  return api<AdminUserDetail>(`/api/v1/admin/users/${id}`);
+}
+
+export function patchAdminUserRole(id: string, role: string): Promise<AdminUserRow> {
+  return api<AdminUserRow>(`/api/v1/admin/users/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function patchAdminUserActive(
+  id: string,
+  is_active: boolean,
+  reason: string,
+): Promise<AdminUserRow> {
+  return api<AdminUserRow>(`/api/v1/admin/users/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_active, reason }),
+  });
+}
+
+export function lockAdminUser(
+  id: string,
+  hours: number,
+  reason: string,
+): Promise<unknown> {
+  return api(`/api/v1/admin/users/${id}/lock`, {
+    method: "POST",
+    body: JSON.stringify({ hours, reason }),
+  });
+}
+
+export function unlockAdminUser(id: string, reason: string): Promise<unknown> {
+  return api(`/api/v1/admin/users/${id}/unlock`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+// ---------- Admin: communities ----------
+
+export function listAdminCommunities(
+  params: { q?: string; include_deleted?: boolean } = {},
+): Promise<AdminCommunityRow[]> {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set("q", params.q);
+  if (params.include_deleted) qs.set("include_deleted", "true");
+  const qstr = qs.toString();
+  return api<AdminCommunityRow[]>(`/api/v1/admin/communities${qstr ? `?${qstr}` : ""}`);
+}
+
+export function getAdminCommunity(id: string): Promise<AdminCommunityDetail> {
+  return api<AdminCommunityDetail>(`/api/v1/admin/communities/${id}`);
+}
+
+export function takeDownAdminCommunity(id: string, reason: string): Promise<unknown> {
+  return api(`/api/v1/admin/communities/${id}/take-down`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function restoreAdminCommunity(id: string, reason: string): Promise<unknown> {
+  return api(`/api/v1/admin/communities/${id}/restore`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+// ---------- Admin: listings ----------
+
+export function listAdminListings(
+  params: { q?: string; availability_status?: string } = {},
+): Promise<AdminListingRow[]> {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set("q", params.q);
+  if (params.availability_status) qs.set("availability_status", params.availability_status);
+  const qstr = qs.toString();
+  return api<AdminListingRow[]>(`/api/v1/admin/listings${qstr ? `?${qstr}` : ""}`);
+}
+
+export function getAdminListing(id: string): Promise<AdminListingDetail> {
+  return api<AdminListingDetail>(`/api/v1/admin/listings/${id}`);
+}
+
+export function takeDownAdminListing(id: string, reason: string): Promise<unknown> {
+  return api(`/api/v1/admin/listings/${id}/take-down`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function restoreAdminListing(id: string, reason: string): Promise<unknown> {
+  return api(`/api/v1/admin/listings/${id}/restore`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+// ---------- Admin: audit log ----------
+
+export function listAdminAuditLog(
+  params: {
+    actor_user_id?: string;
+    action?: string;
+    action_prefix?: string;
+    target_type?: string;
+    limit?: number;
+    offset?: number;
+  } = {},
+): Promise<AuditLogEntry[]> {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined) qs.set(k, String(v));
+  });
+  const qstr = qs.toString();
+  return api<AuditLogEntry[]>(`/api/v1/admin/audit-log${qstr ? `?${qstr}` : ""}`);
 }

@@ -471,3 +471,116 @@ export interface FeedResponse {
   rows: FeedRow[];
   next_cursor: string | null;
 }
+
+// --- Admin / settings / flags / moderation ---
+
+export type Role = "user" | "moderator" | "admin";
+
+export interface RegistryEntry {
+  key: string;
+  type: "bool" | "int" | "str" | "float";
+  default: unknown;
+  scopes: ("global" | "household" | "user")[];
+  description: string;
+  public: boolean;
+}
+
+export interface GlobalSettingRow {
+  key: string;
+  spec: RegistryEntry;
+  current_global: unknown;
+  has_global_override: boolean;
+  household_override_count: number;
+  user_override_count: number;
+}
+
+export interface SettingDetail {
+  key: string;
+  spec: RegistryEntry;
+  current_global: unknown;
+  has_global_override: boolean;
+  household_overrides: { household_id: string; value: unknown; updated_at: string }[];
+  user_overrides: { user_id: string; value: unknown; updated_at: string }[];
+}
+
+export interface FeatureFlag {
+  key: string;
+  description: string | null;
+  enabled_globally: boolean;
+  rollout_percent: number;
+  household_override_count: number;
+  user_override_count: number;
+}
+
+export interface FeatureFlagDetail extends FeatureFlag {
+  household_overrides: { id: string; household_id: string; enabled: boolean }[];
+  user_overrides: { id: string; user_id: string; enabled: boolean }[];
+}
+
+export interface AdminUserRow {
+  id: string;
+  email: string;
+  display_name: string | null;
+  role: Role;
+  is_active: boolean;
+  locked_until: string | null;
+  created_at: string;
+}
+
+export interface AdminUserDetail extends AdminUserRow {
+  household_memberships: { household_id: string; role: string }[];
+  listing_count: number;
+}
+
+export interface AdminCommunityRow {
+  id: string;
+  name: string;
+  slug: string;
+  created_at: string;
+  deleted_at: string | null;
+  created_by_user_id: string;
+}
+
+export interface AdminCommunityDetail extends AdminCommunityRow {
+  member_count: number;
+  listing_count: number;
+}
+
+export interface AdminListingRow {
+  id: string;
+  item_id: string;
+  item_name: string;
+  household_id: string;
+  availability_status: string;
+  created_at: string;
+  deleted_at: string | null;
+}
+
+// Matches the actual get_listing response: description_override is surfaced
+// as "description"; household_id is NOT present in the detail response.
+export interface AdminListingDetail {
+  id: string;
+  item_id: string;
+  availability_status: string;
+  allowed_exchange_types: string[];
+  quantity_available: number;
+  description: string | null;
+  created_at: string;
+  deleted_at: string | null;
+  shared_with_communities: string[];
+}
+
+export interface AuditLogEntry {
+  id: string;
+  actor_user_id: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface RuntimeConfig {
+  signups_open?: boolean;
+  maintenance_message?: string;
+}
