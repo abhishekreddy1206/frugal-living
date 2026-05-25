@@ -33,7 +33,9 @@ def list_audit_log(
     if action is not None:
         q = q.filter(AuditLog.action == action)
     if action_prefix is not None:
-        q = q.filter(AuditLog.action.startswith(action_prefix))
+        # autoescape=True so underscores in dotted action namespaces (e.g.
+        # "food.pantry_item.added") are treated as literals, not LIKE wildcards.
+        q = q.filter(AuditLog.action.startswith(action_prefix, autoescape=True))
     if target_type is not None:
         q = q.filter(AuditLog.target_type == target_type)
     if since is not None:
