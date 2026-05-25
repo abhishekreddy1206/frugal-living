@@ -8,6 +8,7 @@ from app.db import SessionLocal
 from app.routers import (
     admin_flags,
     admin_settings,
+    admin_users,
     ai,
     auth,
     community,
@@ -58,6 +59,7 @@ app.include_router(community.router, prefix="/api/v1/community", tags=["communit
 # Admin (core)
 app.include_router(admin_flags.router, prefix="/api/v1/admin/flags", tags=["admin"])
 app.include_router(admin_settings.router, prefix="/api/v1/admin/settings", tags=["admin"])
+app.include_router(admin_users.router, prefix="/api/v1/admin/users", tags=["admin"])
 
 # Self-service settings (user + household scope)
 app.include_router(me_settings.router, prefix="/api/v1", tags=["me"])
