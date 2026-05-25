@@ -59,3 +59,13 @@ def test_household_settings_non_member_returns_403(second_household):
         json={"value": 9},
     )
     assert r.status_code == 403
+
+
+def test_household_setting_unknown_key_403_not_404_for_non_member(second_household):
+    # Regression: even for a non-existent key, a non-member must see 403
+    # (not 404), to avoid leaking which keys exist in the registry.
+    r = client.put(
+        f"/api/v1/households/{second_household.id}/settings/nonexistent_key",
+        json={"value": 9},
+    )
+    assert r.status_code == 403

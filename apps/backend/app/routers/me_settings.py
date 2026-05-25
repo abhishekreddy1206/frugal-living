@@ -94,9 +94,11 @@ def set_household_setting(
     hid: UUID, key: str, body: SettingWrite,
     user: CurrentUser, db: Session = Depends(get_db),
 ):
+    # Owner-check FIRST so non-members can't probe the registry keyspace by
+    # distinguishing 403 (key exists) from 404 (key doesn't).
+    _require_owner(db, user.id, hid)
     if key not in SETTING_REGISTRY:
         raise HTTPException(status_code=404, detail="unknown setting key")
-    _require_owner(db, user.id, hid)
     try:
         set_setting(db, key, body.value, scope="household", scope_id=hid, actor=user)
     except ValueError as e:
@@ -108,8 +110,8 @@ def set_household_setting(
 def clear_household_setting(
     hid: UUID, key: str, user: CurrentUser, db: Session = Depends(get_db),
 ):
+    _require_owner(db, user.id, hid)
     if key not in SETTING_REGISTRY:
         raise HTTPException(status_code=404, detail="unknown setting key")
-    _require_owner(db, user.id, hid)
     clear_setting(db, key, scope="household", scope_id=hid, actor=user)
     db.commit()
