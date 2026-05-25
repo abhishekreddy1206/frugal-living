@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session as DbSession
 from app.config import settings
 from app.db import get_db
 from app.models.core import Household, HouseholdMember, User
+from app.services.auth.permissions import is_admin, is_at_least_moderator
 from app.services.auth.sessions import get_session_by_raw_token
 from app.services.ingredients import seed_starter_ingredients
 from app.services.streaks import seed_badge_definitions
@@ -100,3 +101,20 @@ def get_current_household(
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentHousehold = Annotated[Household, Depends(get_current_household)]
+
+
+def require_admin(user: CurrentUser) -> User:
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="admin required")
+    return user
+
+
+def require_moderator(user: CurrentUser) -> User:
+    """Pass if user is admin OR moderator. Used for moderation endpoints."""
+    if not is_at_least_moderator(user):
+        raise HTTPException(status_code=403, detail="moderator required")
+    return user
+
+
+CurrentAdmin = Annotated[User, Depends(require_admin)]
+CurrentModerator = Annotated[User, Depends(require_moderator)]
