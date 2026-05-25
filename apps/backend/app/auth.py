@@ -28,6 +28,7 @@ from app.models.core import Household, HouseholdMember, User
 from app.services.admin.bootstrap import bootstrap_admin
 from app.services.auth.permissions import is_admin, is_at_least_moderator
 from app.services.auth.sessions import get_session_by_raw_token
+from app.services.flags.admin import seed_initial_flags
 from app.services.ingredients import seed_starter_ingredients
 from app.services.streaks import seed_badge_definitions
 
@@ -48,6 +49,7 @@ def seed_reference_data(db: DbSession) -> None:
     """
     seed_starter_ingredients(db)
     seed_badge_definitions(db)
+    seed_initial_flags(db)
     bootstrap_admin(
         db,
         email=settings.admin_email,

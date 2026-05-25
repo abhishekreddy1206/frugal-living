@@ -44,6 +44,7 @@ from app.models.core import (
     AppSettingKv,
     AuditLog,
     Event,
+    FeatureFlag,
     FeatureFlagOverride,
     Household,
     HouseholdMember,
@@ -285,6 +286,15 @@ def _clean_household_data():
         # need a clean slate (the auth-flow tests opt out of this fixture).
         db_.query(AuditLog).delete()
         db_.query(FeatureFlagOverride).delete()
+        # Wipe non-seeded flags between tests; the seeded ones are restored on next startup.
+        db_.query(FeatureFlag).filter(
+            ~FeatureFlag.key.in_([
+                "community.exchange_engine.enabled",
+                "ai.opus_meal_planner.enabled",
+                "content.youtube_ingestion.enabled",
+                "voice.assistant.enabled",
+            ])
+        ).delete(synchronize_session=False)
         db_.query(UserSetting).delete()
         db_.query(HouseholdSetting).delete()
         db_.query(AppSettingKv).delete()

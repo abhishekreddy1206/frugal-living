@@ -5,7 +5,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth import seed_reference_data
 from app.db import SessionLocal
-from app.routers import admin_settings, ai, auth, community, content, food, health, me_settings, runtime_config, tracking
+from app.routers import (
+    admin_flags,
+    admin_settings,
+    ai,
+    auth,
+    community,
+    content,
+    food,
+    health,
+    me_settings,
+    runtime_config,
+    tracking,
+)
 
 
 @asynccontextmanager
@@ -44,6 +56,7 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(community.router, prefix="/api/v1/community", tags=["community"])
 
 # Admin (core)
+app.include_router(admin_flags.router, prefix="/api/v1/admin/flags", tags=["admin"])
 app.include_router(admin_settings.router, prefix="/api/v1/admin/settings", tags=["admin"])
 
 # Self-service settings (user + household scope)
