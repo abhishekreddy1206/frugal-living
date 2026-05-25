@@ -74,17 +74,27 @@ def list_flags(_: CurrentAdmin, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=FeatureFlagRead, status_code=status.HTTP_201_CREATED)
-def create_flag(body: FeatureFlagCreate, _: CurrentAdmin, db: Session = Depends(get_db)):
+def create_flag(body: FeatureFlagCreate, user: CurrentAdmin, db: Session = Depends(get_db)):
     f = FeatureFlag(
         key=body.key, description=body.description,
         enabled_globally=body.enabled_globally, rollout_percent=body.rollout_percent,
     )
     db.add(f)
     try:
-        db.commit()
+        db.flush()
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="flag key already exists") from None
+    db.add(AuditLog(
+        actor_user_id=user.id, action="admin.flag.created",
+        target_type="feature_flag", target_id=None,
+        payload={
+            "key": body.key,
+            "enabled_globally": body.enabled_globally,
+            "rollout_percent": body.rollout_percent,
+        },
+    ))
+    db.commit()
     return _read(db, f)
 
 
@@ -120,12 +130,13 @@ def patch_flag(
     if body.rollout_percent is not None:
         f.rollout_percent = body.rollout_percent
         changes["rollout_percent"] = body.rollout_percent
-    db.add(AuditLog(
-        actor_user_id=user.id, action="admin.flag.updated",
-        target_type="feature_flag", target_id=None,
-        payload={"key": key, **changes},
-    ))
-    db.commit()
+    if changes:
+        db.add(AuditLog(
+            actor_user_id=user.id, action="admin.flag.updated",
+            target_type="feature_flag", target_id=None,
+            payload={"key": key, **changes},
+        ))
+        db.commit()
     return _read(db, f)
 
 
