@@ -101,8 +101,10 @@ def test_list_listings_moderator(as_moderator):
         listing_id = listing.id
     r = client.get("/api/v1/admin/listings")
     assert r.status_code == 200
-    assert any(str(row["item_id"]) == str(listing_id) or True for row in r.json())
-    assert len(r.json()) >= 1
+    rows = r.json()
+    assert any(str(row["id"]) == str(listing_id) for row in rows)
+    # The new item_name field surfaces the searchable label
+    assert any(row.get("item_name") == "Drill" for row in rows)
 
 
 def test_take_down_listing(as_moderator):
@@ -216,6 +218,67 @@ def test_take_down_community(as_moderator):
         row = db.get(Community, cid)
         assert row is not None
         assert row.deleted_at is not None
+
+
+def test_restore_community(as_moderator):
+    from datetime import UTC, datetime
+    with SessionLocal() as db:
+        from app.models.community import Community
+        c = Community(
+            name="WasTakenDown", slug=f"restore-{uuid.uuid4().hex[:6]}",
+            created_by_user_id=DEV_USER_ID,
+            deleted_at=datetime.now(UTC),
+        )
+        db.add(c)
+        db.commit()
+        cid = c.id
+
+    r = client.post(
+        f"/api/v1/admin/communities/{cid}/restore",
+        json={"reason": "appeal granted"},
+    )
+    assert r.status_code == 204
+    with SessionLocal() as db:
+        from app.models.community import Community
+        row = db.get(Community, cid)
+        assert row is not None
+        assert row.deleted_at is None
+
+
+def test_restore_listing_preserves_paused_status(as_moderator):
+    """Regression: restore_listing must not overwrite the owner's 'paused' intent."""
+    with SessionLocal() as db:
+        from app.models.community import CommunityItem, Listing
+        item = CommunityItem(
+            household_id=uuid.UUID("00000000-0000-0000-0000-000000000002"),
+            name="Sander", category="tools", quantity=1,
+            created_by_user_id=DEV_USER_ID,
+        )
+        db.add(item)
+        db.flush()
+        listing = Listing(
+            item_id=item.id, created_by_user_id=DEV_USER_ID,
+            availability_status="paused",  # owner-set, not moderator-set
+            allowed_exchange_types=["borrow"], quantity_available=1,
+        )
+        from datetime import UTC, datetime
+        listing.deleted_at = datetime.now(UTC)  # but moderator soft-deleted it
+        db.add(listing)
+        db.commit()
+        lid = listing.id
+
+    r = client.post(
+        f"/api/v1/admin/listings/{lid}/restore",
+        json={"reason": "back online"},
+    )
+    assert r.status_code == 204
+    with SessionLocal() as db:
+        from app.models.community import Listing
+        row = db.get(Listing, lid)
+        assert row is not None
+        assert row.deleted_at is None
+        # The "paused" status should survive — only "removed" is reset to "available"
+        assert row.availability_status == "paused"
 
 
 def test_audit_log_recorded_with_reason(as_moderator):

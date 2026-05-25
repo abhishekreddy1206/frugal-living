@@ -56,7 +56,10 @@ def take_down_listing(db: DbSession, *, listing: Listing, reason: str, actor: Us
 
 def restore_listing(db: DbSession, *, listing: Listing, reason: str, actor: User) -> None:
     listing.deleted_at = None
-    listing.availability_status = "available"
+    # Only reset the moderator-set "removed" status. If the owner had paused the
+    # listing themselves, don't overwrite their intent — they can re-enable it.
+    if listing.availability_status == "removed":
+        listing.availability_status = "available"
     db.add(AuditLog(
         actor_user_id=actor.id, action="admin.listing.restored",
         target_type="listing", target_id=listing.id,

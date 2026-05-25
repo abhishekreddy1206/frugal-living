@@ -107,25 +107,30 @@ def list_listings(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    query = db.query(Listing)
+    # Always join CommunityItem so the response can surface the item name
+    # (the listing alone has no human-readable label).
+    query = (
+        db.query(Listing, CommunityItem)
+        .join(CommunityItem, Listing.item_id == CommunityItem.id)
+    )
     if not include_deleted:
         query = query.filter(Listing.deleted_at.is_(None))
     if availability_status:
         query = query.filter(Listing.availability_status == availability_status)
     if q:
-        # Search by item name via join
-        query = query.join(CommunityItem, Listing.item_id == CommunityItem.id)
         query = query.filter(CommunityItem.name.ilike(f"%{q}%"))
     rows = query.order_by(Listing.created_at.desc()).offset(offset).limit(limit).all()
     return [
         {
-            "id": str(row.id),
-            "item_id": str(row.item_id),
-            "availability_status": row.availability_status,
-            "created_at": row.created_at.isoformat(),
-            "deleted_at": row.deleted_at.isoformat() if row.deleted_at else None,
+            "id": str(listing.id),
+            "item_id": str(listing.item_id),
+            "item_name": item.name,
+            "household_id": str(item.household_id),
+            "availability_status": listing.availability_status,
+            "created_at": listing.created_at.isoformat(),
+            "deleted_at": listing.deleted_at.isoformat() if listing.deleted_at else None,
         }
-        for row in rows
+        for listing, item in rows
     ]
 
 
