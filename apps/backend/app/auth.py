@@ -104,6 +104,7 @@ CurrentHousehold = Annotated[Household, Depends(get_current_household)]
 
 
 def require_admin(user: CurrentUser) -> User:
+    """Raise 403 if the user is not an active admin."""
     if not is_admin(user):
         raise HTTPException(status_code=403, detail="admin required")
     return user
