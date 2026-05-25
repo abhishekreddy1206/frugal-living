@@ -7,6 +7,7 @@ from app.auth import seed_reference_data
 from app.db import SessionLocal
 from app.routers import (
     admin_flags,
+    admin_moderation,
     admin_settings,
     admin_users,
     ai,
@@ -60,6 +61,7 @@ app.include_router(community.router, prefix="/api/v1/community", tags=["communit
 app.include_router(admin_flags.router, prefix="/api/v1/admin/flags", tags=["admin"])
 app.include_router(admin_settings.router, prefix="/api/v1/admin/settings", tags=["admin"])
 app.include_router(admin_users.router, prefix="/api/v1/admin/users", tags=["admin"])
+app.include_router(admin_moderation.router, prefix="/api/v1/admin", tags=["admin"])
 
 # Self-service settings (user + household scope)
 app.include_router(me_settings.router, prefix="/api/v1", tags=["me"])
