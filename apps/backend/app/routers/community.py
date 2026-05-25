@@ -17,12 +17,15 @@ from app.models.community import (
     Listing,
     ListingCommunity,
 )
+from app.models.core import Household
 from app.schemas.community import (
     CommunityCreate,
     CommunityMembershipRead,
     CommunityPreview,
     CommunityRead,
     CommunityUpdate,
+    FeedResponse,
+    FeedRow,
     ItemCaptureRequest,
     ItemCaptureResponse,
     ItemCreate,
@@ -62,6 +65,10 @@ from app.services.community.listings import (
 )
 from app.services.community.listings import (
     ListingNotFound as _ListingNotFound,
+)
+from app.services.community.visibility import (
+    distance_for,
+    listings_visible_to,
 )
 from app.services.llm import extract_items_from_image
 
@@ -613,3 +620,94 @@ def decline_request_endpoint(
     db.commit()
     db.refresh(req)
     return JoinRequestRead.model_validate(req)
+
+
+# ---------------------------------------------------------------------------
+# Discovery feed
+# ---------------------------------------------------------------------------
+
+@router.get("/feed", response_model=FeedResponse)
+def feed_endpoint(
+    household: CurrentHousehold,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    community_id: Annotated[uuid.UUID | None, Query()] = None,
+    category: Annotated[str | None, Query()] = None,
+    radius_miles_max: Annotated[int | None, Query(ge=1, le=500)] = None,
+    cursor: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> FeedResponse:
+    """The discovery feed. Every row's visibility was decided by
+    `listings_visible_to(...)` — there is no other path for cross-household reads.
+    Newest-first ordering; pagination is offset-based (opaque cursor)."""
+    q = listings_visible_to(db, viewer_household=household, viewer_user=user)
+    # Order by listing recency (newest first).
+    q = q.order_by(Listing.created_at.desc())
+
+    if category is not None:
+        q = q.join(CommunityItem, CommunityItem.id == Listing.item_id).filter(
+            CommunityItem.category == category
+        )
+
+    rows: list[FeedRow] = []
+    fetched = q.offset(cursor).limit(limit + 1).all()
+    has_more = len(fetched) > limit
+    for listing in fetched[:limit]:
+        item = db.get(CommunityItem, listing.item_id)
+        if item is None:
+            continue
+        owner_h = db.get(Household, item.household_id)
+        distance = distance_for(household, owner_h) if owner_h else None
+        # Optional caller-side max-distance cap on radius rows.
+        if (
+            distance is not None
+            and radius_miles_max is not None
+            and distance > radius_miles_max
+        ):
+            continue
+
+        # Did this row match via a shared community?
+        community_match = None
+        if community_id is not None:
+            # If the caller filtered to a specific community, the match IS that one.
+            community_match = community_id
+        else:
+            shared_membership = (
+                db.query(CommunityMember.community_id)
+                .join(
+                    ListingCommunity,
+                    ListingCommunity.community_id == CommunityMember.community_id,
+                )
+                .filter(
+                    ListingCommunity.listing_id == listing.id,
+                    CommunityMember.user_id == user.id,
+                )
+                .first()
+            )
+            if shared_membership:
+                community_match = shared_membership[0]
+
+        rows.append(FeedRow(
+            listing=_listing_read(db, listing),
+            distance_miles=distance if listing.share_in_radius else None,
+            matched_community_id=community_match,
+        ))
+
+    next_cursor = str(cursor + limit) if has_more else None
+    # If caller filtered by community_id, narrow to listings actually in that community.
+    if community_id is not None:
+        rows = [
+            r for r in rows
+            if any(
+                lc.community_id == community_id
+                for lc in db.query(ListingCommunity).filter_by(
+                    listing_id=(
+                        uuid.UUID(r.listing.id)
+                        if isinstance(r.listing.id, str)
+                        else r.listing.id
+                    ),
+                ).all()
+            )
+        ]
+
+    return FeedResponse(rows=rows, next_cursor=next_cursor)
