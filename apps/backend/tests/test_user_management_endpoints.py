@@ -65,6 +65,12 @@ def test_patch_is_active_requires_reason(as_moderator):
     assert r.status_code == 422  # reason missing
 
 
+def test_patch_invalid_role_returns_422(as_admin):
+    """Regression: invalid role value must surface as 422, not 500."""
+    r = client.patch(f"/api/v1/admin/users/{DEV_USER_ID}", json={"role": "INVALID_ROLE"})
+    assert r.status_code == 422
+
+
 def test_last_admin_guard(as_admin):
     # Temporarily deactivate all other admins so ADMIN_USER is the only active admin.
     # This is necessary because the bootstrap test suite creates persisted admin rows.

@@ -78,16 +78,19 @@ def get_user(
     )
 
 
-@router.patch("/{user_id}")
+@router.patch("/{user_id}", response_model=UserListRow)
 def patch_user(
     user_id: UUID,
     body: Annotated[dict, Body(...)],
     user: CurrentUser,  # use the base, then branch on body shape + role
     db: Session = Depends(get_db),
 ):
-    """Two body shapes:
+    """Two body shapes (cannot be combined — `role` takes precedence if both keys appear):
       { role: "user"|"moderator"|"admin" }            — admin only
       { is_active: bool, reason: str }                — admin OR moderator
+
+    TODO: replace the dual-body dict pattern with FastAPI's RequestModel/oneOf
+    once that gives better OpenAPI fidelity. For now clients see a generic dict.
     """
     target = db.get(User, user_id)
     if target is None:
@@ -96,8 +99,11 @@ def patch_user(
     if "role" in body:
         if not is_admin(user):
             raise HTTPException(403, "admin required to change role")
-        parsed = RolePatch(**body)
-        change_role(db, target=target, new_role=parsed.role, actor=user)
+        try:
+            parsed_role = RolePatch(**body)
+        except ValidationError as exc:
+            raise HTTPException(422, detail=exc.errors()) from exc
+        change_role(db, target=target, new_role=parsed_role.role, actor=user)
         db.commit()
         return _row(target)
 
@@ -105,12 +111,12 @@ def patch_user(
         if not is_at_least_moderator(user):
             raise HTTPException(403, "moderator required")
         try:
-            parsed = IsActivePatch(**body)
+            parsed_active = IsActivePatch(**body)
         except ValidationError as exc:
             raise HTTPException(422, detail=exc.errors()) from exc
         set_active(
-            db, target=target, is_active=parsed.is_active,
-            reason=parsed.reason, actor=user,
+            db, target=target, is_active=parsed_active.is_active,
+            reason=parsed_active.reason, actor=user,
         )
         db.commit()
         return _row(target)
