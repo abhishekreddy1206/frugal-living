@@ -14,54 +14,59 @@ We are pre-launch. No real users yet. **Speed and clean foundations > polish.** 
 
 ## 🚦 Current state
 
-**Tier A MVP is built and runs.** All eight planned sprints are merged; the backend boots against Postgres, all migrations apply, and the test suite passes (134 tests). Frontend typechecks clean.
+**Well past the Tier A MVP.** All eight food sprints are merged, plus real cookie-session auth, the full Tier B (`community`) suite, an admin console, and a feature-flag + settings resolver. The backend boots against Postgres, all seven migrations apply, and the suite has ~409 test functions across 67 `tests/test_*.py` files (tests require Postgres + the `claude` CLI to run). Frontend typechecks clean.
 
 What's fully implemented:
 - **`food` (Tier A)** — pantry photo capture, recipe stretcher, weekly meal plan, shopping list from plan, waste tracking + savings rollup, preservation coach (with botulism safeguards). All wired to Claude through `services/llm.py`.
-- **`ai`** — daily briefings (Sprint 7); conversational chat assistant — per-page conversation threads with food-tier actions (add/remove/update pantry, log waste, mark cooked, generate meal plan) and grounded Q&A. Voice is still a stub.
+- **Auth (core) — REAL now, not stubbed.** Cookie-session auth: signup/login/logout/`/me`, change password, login lockout/throttle, multi-household support (create + switch), and household invites (create/revoke/preview/accept). Lives in `app/routers/auth.py` + `app/services/auth/` (`passwords`, `sessions`, `throttle`, `permissions`, `invites`). `/me` returns the user's `role`. The dev user (`DEV_USER_ID`/`DEV_HOUSEHOLD_ID` in `app/auth.py`) is now **only** a test fixture (seeded by `tests/conftest.py` via `dependency_overrides`); the running app seeds reference data only (`seed_reference_data`), not a logged-in user. Frontend has `/login`, `/signup`, and `/invite/[token]` pages backed by an `AuthProvider`.
+- **`community` (Tier B) — FULLY BUILT, not "later".** Durable household-goods inventory (CRUD + `POST /items/capture` vision), communities (create/preview-by-slug/update/delete/leave/mine), join requests (request/withdraw/list/approve/decline), listings (create/mine/get/update/delete with exchange types, shared to a community or geo-radius), a `/feed` (community + radius filters), and `/household/location`. Router `app/routers/community.py`; services in `app/services/community/` (communities, items, join_requests, listings, visibility). New LLM function `extract_items_from_image` for inventory vision. Frontend: `/communities`, `/communities/[slug]`, `/inventory`, `/share`.
+- **Admin console (core).** Routers `admin_audit` (`GET /admin/audit-log` with filters), `admin_moderation` (community + listing take-down/restore with reasons), `admin_users` (list/detail/patch role+active/lock/unlock), `admin_flags` (feature-flag CRUD + global/household/user overrides + rollout percent), `admin_settings` (registry + global/household/user values). Services under `app/services/admin/` (`bootstrap`, `moderation`, `users`), `app/services/flags/`, `app/services/settings/`. Full `/admin/*` web UI (users, communities, listings, flags, settings, audit-log, banner), gated by role. Admin bootstrap via the `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_DISPLAY_NAME` env vars.
+- **Feature flags + settings resolver.** Beyond the lone `core.feature_flags` table: `core.app_settings_kv`, `household_settings`, `user_settings`, and `feature_flag_overrides`, with a global→household→user resolver (`services/flags/resolver.py`, `services/settings/{resolver,registry}.py`). Self-service endpoints in `me_settings.py` (`/me/settings`, `/households/{hid}/settings`). A public `runtime_config.py` (`GET /api/v1/runtime-config`, no auth) drives the frontend `MaintenanceBanner`.
+- **`ai`** — daily briefings; conversational chat assistant via `app/services/chat.py` + persisted `ai.conversations`/`ai.messages` (`POST /ai/conversations`, `POST /ai/conversations/{id}/messages`). `chat_turn` (prompt v0.2) supports food-tier actions (add/remove/update pantry, log waste, mark cooked, generate meal plan) **and** Tier B inventory actions, grounded in page context. Voice is still a stub.
 - **`tracking`** — streaks + badges (Sprint 8). Dashboard / savings / budgets are still stubs.
 - **`content`** — YouTube link capture + feed; captured videos are enriched (YouTube Data API description + AI ingredient extraction → canonical ingredient IDs) and the `/watch` library ranks them by pantry fit via `GET /content/recipe-suggestions`; `POST /content/enrich` backfills older videos. Channel/RSS/Reddit polling still stubbed.
-- **Frontend** — a warm editorial design system (Fraunces + Hanken Grotesk, app shell with sidebar nav). Pages for all six food features (`/pantry`, `/stretch`, `/plan`, `/shopping`, `/preservation`, `/waste`), the `/watch` library, and a home dashboard.
-- **Infra** — dev user/household, starter ingredients, and badge definitions are seeded on startup (`app/auth.py`). Two migrations applied (`0001` schemas, `0002` all tables). `./frugal up` runs the whole stack.
+- **Frontend** — a warm editorial design system (Fraunces + Hanken Grotesk, app shell with sidebar nav). Pages for all six food features (`/pantry`, `/stretch`, `/plan`, `/shopping`, `/preservation`, `/waste`), the `/watch` library, the Tier B pages (`/communities`, `/communities/[slug]`, `/inventory`, `/share`), auth pages (`/login`, `/signup`, `/invite/[token]`), the `/admin/*` console, and a home dashboard.
+- **Infra** — reference data (starter ingredients, badge definitions) is seeded on startup via `seed_reference_data` in `app/auth.py`. Seven migrations applied (`0001`→`0007`). `./frugal up` runs the whole stack.
 
 What's still stubbed (endpoints return placeholder JSON with a `todo` key):
 - `food`: `/pantry/receipt`, `/pantry/barcode` (Sprint 1.5).
-- `ai`: `/voice/*`; `GET /conversations` (thread-list view) is still a stub.
-- `tracking`: `/dashboard`, `/savings`, `/budgets`.
-- `content`: channel ingestion (`/sources`, `/ingest/run`); `services/{reddit,blog_importer}.py` are placeholders.
+- `ai`: `/voice/*`; `GET /ai/conversations` (thread-list view) is still a stub.
+- `tracking`: `/dashboard`, `/savings` (GET + POST), `/budgets` (GET + POST). (`/streaks` and `/badges` ARE done.)
+- `content`: channel ingestion (`GET /sources`, `POST /ingest/run`); `services/{reddit,blog_importer}.py` are placeholders.
 - `llm.extract_receipt` and `llm.rank_content_for_household` raise `NotImplementedError`.
 
-**To run:** `./frugal up` (starts Postgres, applies migrations, launches backend + frontend). Needs Docker, `uv`, `pnpm`, and the `claude` CLI installed and logged in — the AI layer uses the Claude Code CLI, so no API key is required. `apps/backend/.env` only needs `DATABASE_URL`.
+**To run:** `./frugal up` (starts Postgres, applies migrations, launches backend + frontend). Needs Docker, `uv`, `pnpm`, and the `claude` CLI installed and logged in — the AI layer uses the Claude Code CLI, so no API key is required. `apps/backend/.env` only needs `DATABASE_URL` (plus optional `ADMIN_EMAIL`/`ADMIN_PASSWORD`/`ADMIN_DISPLAY_NAME` to bootstrap an admin, and a `JWT_SECRET` in any real deployment).
 
-**Next implementation target:** Sprint 1.5 (receipt + barcode capture) or the `tracking` dashboard rollup.
+**Next implementation target:** Sprint 1.5 (receipt + barcode capture) or the `tracking` dashboard/savings/budgets rollup.
 
 ---
 
 ## 🏗 The product, in one diagram
 
 ```
-                    ┌─────────────────────┐
-                    │  CORE (shared)      │
-                    │  users, households, │
-                    │  subscriptions,     │
-                    │  events, audit_log  │
-                    └─────────┬───────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-   ┌────▼─────┐         ┌────▼─────┐         ┌────▼─────┐
-   │ Tier A   │         │ Tier S   │         │ Tier B   │
-   │ FOOD     │         │ BILLS    │         │COMMUNITY │
-   │ (now)    │         │ HEALTH   │         │ (later)  │
-   │          │         │ (later)  │         │          │
-   └──────────┘         └──────────┘         └──────────┘
+                    ┌─────────────────────────────────┐
+                    │  CORE (shared)                  │
+                    │  users, households, sessions,   │
+                    │  subscriptions, invites, events,│
+                    │  audit_log, feature_flags +     │
+                    │  settings/overrides resolver    │
+                    └─────────────────┬───────────────┘
+                                      │
+        ┌─────────────────────────────┼─────────────────────────────┐
+        │                             │                             │
+   ┌────▼─────┐                 ┌────▼─────┐                 ┌──────▼─────┐
+   │ Tier A   │                 │ Tier S   │                 │ Tier B     │
+   │ FOOD     │                 │ BILLS    │                 │ COMMUNITY  │
+   │ (built)  │                 │ HEALTH   │                 │ (built)    │
+   │          │                 │ (later)  │                 │            │
+   └──────────┘                 └──────────┘                 └────────────┘
 ```
 
-Each tier = its own Postgres schema, its own router prefix (`/api/v1/food`, `/api/v1/bills`, …), its own model module. Core never references tier tables; tier tables FK only into core.
+Each tier = its own Postgres schema, its own router prefix (`/api/v1/food`, `/api/v1/community`, …), its own model module. Core never references tier tables; tier tables FK only into core. (Admin, auth/sessions, settings, and flags all live in `core` — they're tier-agnostic.)
 
-**Tier A scope (now):** pantry, recipes, meal planning, preservation, shopping lists, food waste.
+**Tier A scope (built):** pantry, recipes, meal planning, preservation, shopping lists, food waste.
+**Tier B scope (built):** durable-goods inventory, hyperlocal communities, join requests, listings/sharing (community-scoped or geo-radius), a sharing feed. Skill barter, mending, and library aggregation remain future.
 **Tier S scope (later):** medical bill audit, bill negotiation, subscription killer, insurance, property tax.
-**Tier B scope (later):** hyperlocal sharing, skill barter, mending, library aggregation.
 
 ---
 
@@ -87,7 +92,7 @@ The original MVP was sprints 1–3; sprints 4–8 followed. Receipt/barcode capt
 
 These encode design decisions that compound. Don't break them.
 
-1. **Schema namespacing per tier.** Tier A → `food` schema. Tier S (future) → `bills`, `health`. Tier B (future) → `community`. New tiers add a schema. **Never** add tables to `public`. **Never** add tier-specific tables to `core`.
+1. **Schema namespacing per tier.** Tier A → `food` schema. Tier B → `community` (both built). Tier S (future) → `bills`, `health`. New tiers add a schema. **Never** add tables to `public`. **Never** add tier-specific tables to `core`.
 
 2. **Core tables stay tier-agnostic.** `core.users`, `core.households`, `core.subscriptions`, `core.events`, `core.feature_flags`, `core.audit_log` never reference tier-specific tables. Never add tier-specific columns here. If you're tempted to add a `pantry_count` to `core.households`, you're doing it wrong — it goes in `food`.
 
@@ -95,7 +100,7 @@ These encode design decisions that compound. Don't break them.
 
 4. **Soft delete by default.** Every domain table has `deleted_at`. Never `DELETE`. Filter `deleted_at IS NULL` in every query. If you need a hard delete, it goes through a dedicated admin path with audit logging.
 
-5. **Emit events for everything meaningful.** Any mutation worth knowing about writes a row to `core.events` with a typed `event_type` like `food.pantry_item.added`, `bills.negotiation.completed`. Streaks, undo, analytics, the future community feed — all read from one table. Use the dotted-namespace convention: `<tier>.<entity>.<action>`.
+5. **Emit events for everything meaningful.** Any mutation worth knowing about writes a row to `core.events` with a typed `event_type` like `food.pantry_item.added`, `bills.negotiation.completed`. Streaks, undo, analytics, a future household activity feed — all read from one table. Use the dotted-namespace convention: `<tier>.<entity>.<action>`.
 
 6. **Single subscription, multi-tier flags.** One `core.subscriptions` row per user. Tier access via `tier_a_enabled`, `tier_s_enabled`, `tier_b_enabled` booleans. **Not** one subscription per product. We will regret it if we let this fragment.
 
@@ -110,7 +115,7 @@ These encode design decisions that compound. Don't break them.
 - **AI:** Claude. `claude-sonnet-4-6` for fast paths and vision; `claude-opus-4-7` for hard reasoning (multi-constraint meal-plan optimization). **Currently routed through the Claude Code CLI (`claude -p`)** — no `ANTHROPIC_API_KEY` needed; the CLI authenticates with the local Claude Code subscription. This is temporary: switching back to the official Python SDK is a one-function change in `app/services/llm.py:get_client()` (the reference body is in its docstring). Everything else in `llm.py` is transport-agnostic.
 - **Local DB:** Postgres via Docker Compose. **Do not switch to SQLite** — we use JSONB and Postgres array types pervasively.
 - **Package managers:** `uv` (Python), `pnpm` (JS).
-- **Auth:** Stubbed. Hardcoded dev user. Plug in Clerk or Auth.js before any real users.
+- **Auth:** Real, first-party cookie-session auth (no third-party IdP). Password hashing, login throttling/lockout, server-side sessions, multi-household membership, household invites, and an admin role — all in `app/services/auth/` + `app/routers/auth.py`. The hardcoded `DEV_USER_ID`/`DEV_HOUSEHOLD_ID` survive only as a test fixture; production sets a real `JWT_SECRET` and (optionally) bootstraps an admin via `ADMIN_EMAIL`/`ADMIN_PASSWORD`/`ADMIN_DISPLAY_NAME`.
 
 ---
 
@@ -124,52 +129,77 @@ frugal-living/
 │   │   │   ├── config.py            # pydantic-settings, reads .env
 │   │   │   ├── db.py                # SQLAlchemy engine, session, Base
 │   │   │   ├── main.py              # FastAPI app + router mounts
-│   │   │   ├── auth.py              # dev-mode auth stub + fixture seeding
+│   │   │   ├── auth.py              # DEV_* test-fixture IDs + seed_reference_data
 │   │   │   ├── models/
 │   │   │   │   ├── __init__.py      # imports all model modules
-│   │   │   │   ├── core.py          # users, households, subs, events, audit
+│   │   │   │   ├── core.py          # users, households, subs, events, audit,
+│   │   │   │   │                    #   sessions, invites, settings, flags + overrides
 │   │   │   │   ├── food.py          # Tier A: pantry, recipes, meals, ...
-│   │   │   │   ├── ai.py            # conversations, voice, briefings
+│   │   │   │   ├── community.py     # Tier B: items, communities, listings, ...
+│   │   │   │   ├── ai.py            # conversations, messages, voice, briefings
 │   │   │   │   ├── content.py       # content sources, items, bookmarks
 │   │   │   │   └── tracking.py      # budgets, savings, streaks, badges
 │   │   │   ├── routers/
 │   │   │   │   ├── health.py        # /healthz
+│   │   │   │   ├── auth.py          # /api/v1/auth/*  (signup/login/invites/households)
 │   │   │   │   ├── food.py          # /api/v1/food/*
+│   │   │   │   ├── community.py     # /api/v1/community/*  (Tier B)
 │   │   │   │   ├── ai.py            # /api/v1/ai/*
-│   │   │   │   ├── content.py       # /api/v1/content/*  (stubs)
-│   │   │   │   └── tracking.py      # /api/v1/tracking/*
+│   │   │   │   ├── content.py       # /api/v1/content/*  (ingestion stubs)
+│   │   │   │   ├── tracking.py      # /api/v1/tracking/*  (dashboard/savings/budgets stubs)
+│   │   │   │   ├── admin_audit.py   # /api/v1/admin/audit-log
+│   │   │   │   ├── admin_moderation.py # /api/v1/admin/{communities,listings} take-down/restore
+│   │   │   │   ├── admin_users.py   # /api/v1/admin/users
+│   │   │   │   ├── admin_flags.py   # /api/v1/admin/flags + overrides
+│   │   │   │   ├── admin_settings.py# /api/v1/admin/settings + overrides
+│   │   │   │   ├── me_settings.py   # /api/v1/me/settings, /households/{hid}/settings
+│   │   │   │   └── runtime_config.py# /api/v1/runtime-config  (public, no auth)
 │   │   │   ├── schemas/             # Pydantic request/response models
-│   │   │   │   ├── food.py
-│   │   │   │   ├── content.py
-│   │   │   │   └── tracking.py
+│   │   │   │   ├── auth.py food.py community.py ai.py
+│   │   │   │   └── content.py tracking.py admin.py flags.py settings.py
 │   │   │   └── services/
 │   │   │       ├── llm.py           # ALL Claude calls (Claude Code CLI transport)
 │   │   │       ├── events.py        # emit_event helper
+│   │   │       ├── chat.py          # conversational assistant (food + Tier B actions)
 │   │   │       ├── ingredients.py   # ingredient resolution + seeding
 │   │   │       ├── pantry.py recipes.py meal_plans.py shopping.py
 │   │   │       ├── waste.py preservation.py briefings.py streaks.py
-│   │   │       ├── youtube.py       # YouTube oEmbed metadata fetch
+│   │   │       ├── content.py       # YouTube enrichment + pantry-fit ranking
+│   │   │       ├── youtube.py       # YouTube metadata fetch
+│   │   │       ├── auth/            # passwords, sessions, throttle, permissions, invites
+│   │   │       ├── community/       # communities, items, join_requests, listings, visibility
+│   │   │       ├── admin/           # bootstrap, moderation, users
+│   │   │       ├── flags/           # resolver + admin (global→household→user)
+│   │   │       ├── settings/        # registry + resolver (global→household→user)
 │   │   │       └── reddit.py blog_importer.py voice.py  # stubs
 │   │   ├── alembic/
 │   │   │   ├── env.py
-│   │   │   └── versions/            # 0001_init_schemas, 0002_create_all_tables
-│   │   ├── tests/
+│   │   │   └── versions/            # 0001_init_schemas → 0007_app_settings (linear chain)
+│   │   ├── tests/                   # 67 test_*.py files, ~409 test functions
 │   │   ├── alembic.ini
 │   │   ├── pyproject.toml
 │   │   └── .env.example
-│   └── web/
-│       ├── src/
-│       │   ├── app/                 # Next.js App Router
-│       │   ├── components/
-│       │   └── lib/api.ts           # backend API client
-│       ├── package.json
-│       ├── tsconfig.json
-│       └── tailwind.config.ts
+│   ├── web/
+│   │   ├── src/
+│   │   │   ├── app/                 # Next.js App Router
+│   │   │   │   ├── (food)           # pantry, stretch, plan, shopping, preservation, waste
+│   │   │   │   ├── watch            # captured-video library
+│   │   │   │   ├── communities, communities/[slug], inventory, share  # Tier B
+│   │   │   │   ├── login, signup, invite/[token]                      # auth
+│   │   │   │   └── admin/*          # users, communities, listings, flags, settings,
+│   │   │   │                        #   audit-log, banner (role-gated)
+│   │   │   ├── components/          # incl. AuthProvider, MaintenanceBanner
+│   │   │   └── lib/api.ts           # backend API client
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   └── tailwind.config.ts
+│   └── mobile/                      # placeholder (README only) — Expo, future
 ├── infra/docker/
 │   └── docker-compose.yml           # Postgres
 ├── docs/
-│   └── ARCHITECTURE.md              # Read for deep data-model context
+│   └── architecture.md             # cross-cutting modules + AI surfaces
 ├── packages/shared-types/           # (future) shared TS types
+├── ARCHITECTURE.md                  # data-model deep dive
 ├── frugal                           # one-command dev runner (./frugal up|down)
 ├── CLAUDE.md                        # This file
 ├── README.md
@@ -262,9 +292,10 @@ The LLM service is the heart of the product. Read carefully.
 **Transport.** `get_client()` returns a CLI-backed shim (`_ClaudeCliClient`) that spawns `claude -p` and exposes the same `.messages.create(...)` surface as the Anthropic SDK. Vision calls write the image to a temp file and let the CLI's Read tool open it. The public functions never see the transport — they call `get_client().messages.create(...)` exactly as before. To revert to the SDK, only `get_client()` changes.
 
 **Model selection** (defined in `app/services/llm.py`):
-- `MODEL_FAST` = `claude-sonnet-4-6`. Use for: recipe generation, plan generation, pantry image extraction, anything that's well-scoped and high-volume.
+- `MODEL_FAST` = `claude-sonnet-4-6`. Use for: recipe generation, plan generation, chat turns, anything that's well-scoped and high-volume.
 - `MODEL_SMART` = `claude-opus-4-7`. Use for: hard reasoning, multi-constraint optimization (e.g. plan a week of meals balancing pantry + budget + preferences + nutrition), eval generation. Higher cost — use sparingly.
-- `MODEL_VISION` = `claude-sonnet-4-6`. Use for: pantry photo extraction. Same model as MODEL_FAST but separated for clarity in case we swap later.
+- `MODEL_VISION` = `claude-sonnet-4-6`. Use for: pantry photo extraction and Tier B inventory photo extraction (`extract_items_from_image`). Same model as MODEL_FAST but separated for clarity in case we swap later.
+- `MODEL_HAIKU` = `claude-haiku-4-5-20251001`. Intended for cheap classification (content ranking, ingredient canonicalization). Defined and documented in the module, but **not yet wired to a call site** — reach for it when those cheap-path features land.
 
 **Structured output.** Always prompt Claude for structured JSON output with an explicit schema, and parse defensively. For Anthropic-recommended JSON output: use a clear schema in the system prompt + "Respond ONLY with valid JSON conforming to the schema; no preamble, no code fences." Validate with Pydantic before returning to callers.
 
@@ -283,8 +314,8 @@ The LLM service is the heart of the product. Read carefully.
 - **Don't `DELETE` from domain tables.** Use soft delete.
 - **Don't call Anthropic SDK directly from routers.** Always via `services/llm.py`.
 - **Don't introduce a new database, queue, or cache** without checking with the human first. We will need Redis eventually; not yet.
-- **Don't add auth UI yet.** Stub user is fine for v1.
-- **Don't add a mobile app yet.** Web-first; Expo wraps later.
+- **Don't bypass the real auth layer.** Auth is first-party and built (`app/services/auth/`). Don't reintroduce a hardcoded logged-in user outside tests, and don't add a third-party IdP (Clerk/Auth.js) without checking with the human first.
+- **Don't add a mobile app yet.** Web-first; `apps/mobile/` is a reserved placeholder (README only). Expo wraps later.
 - **Don't optimize prematurely.** Measure first.
 - **Don't add macros/calorie tracking.** MyFitnessPal owns that lane; we're not competing there.
 - **Don't pull in heavyweight dependencies casually.** Every new dep is a future maintenance cost.

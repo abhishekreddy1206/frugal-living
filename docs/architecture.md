@@ -8,13 +8,13 @@ one of the cross-cutting schemas, read this first.
 
 Three tiers, shipping in order:
 
-- **Tier A — Food.** Pantry, recipes, meal planning, preservation, waste, shopping.
+- **Tier A — Food.** Pantry, recipes, meal planning, preservation, waste, shopping. **Built.**
+- **Tier B — Community.** Durable-goods inventory, hyperlocal communities, join requests, listings/sharing. **Built.**
 - **Tier S — Bills & health.** Medical bills, tax, insurance, utilities. Future.
-- **Tier B — Community.** Sharing, repair, swaps. Future.
 
-Each tier lives in its own Postgres schema (`food`, eventually `bills`, `health`,
-`community`). Tier-specific tables only reference `core` tables; tiers never
-reference each other directly.
+Tier A (`food`) and Tier B (`community`) each live in their own Postgres schema;
+`bills`/`health` follow when Tier S ships. Tier-specific tables only reference
+`core` tables; tiers never reference each other directly.
 
 ## Cross-cutting modules
 
@@ -34,11 +34,17 @@ bills — they're surfaces (content feed, chat, dashboard) that compose tier dat
 
 ```
 core/
-  users
+  users                  (+ role: user | moderator | admin; locked_until for lockout)
   households
   household_members      (multi-user with owner | member | viewer roles)
   subscriptions          (tier_a_enabled, tier_s_enabled, tier_b_enabled)
+  sessions               (cookie-session store: token_hash, expires_at, revoked_at)
+  household_invites      (token_hash, role, expires/accepted/revoked)
   feature_flags
+  feature_flag_overrides (per-household / per-user flag overrides)
+  app_settings_kv        (global config key/value)
+  household_settings     (per-household config key/value)
+  user_settings          (per-user config key/value)
   events                 (polymorphic activity log)
   audit_log
 
@@ -56,6 +62,14 @@ food/                    Tier A
   shopping_items
   preservation_jobs
   food_waste_events
+
+community/               Tier B
+  items                  (durable household-goods inventory)
+  communities            (hyperlocal groups, slug-addressable)
+  community_members
+  community_join_requests
+  listings               (share/giveaway/lend offers)
+  listing_communities    (which communities a listing is shared to)
 
 content/                 Cross-cutting
   sources                (YouTube channels, RSS feeds, subreddits)
@@ -90,11 +104,9 @@ tracking/                Cross-cutting
 5. **Audit through `core.audit_log`.** WHO did WHAT.
 6. **Activity through `core.events`.** Polymorphic: `entity_type + entity_id`.
    Used by streaks, undo, analytics. New tiers emit new event types without
-   touching core. Known food-tier event types: `food.receipt.parsed`,
-   `food.pantry_item.added`, `food.pantry_item.removed` (chat-driven removal),
-   `food.pantry_item.updated` (chat-driven update), `food.pantry_item.wasted`,
-   `food.meal.cooked`; and content-tier `content.item.enriched` (emitted when a
-   saved video is enriched with AI-extracted ingredients).
+   touching core. Event types now span `food.*`, `community.*`, `content.*`,
+   `ai.*`, and admin-actor `admin.*` families — see the authoritative catalog in
+   `ARCHITECTURE.md` § "Event type catalog" (kept in sync with the code).
 
 ## How tiers compose with cross-cutting modules
 
@@ -171,9 +183,12 @@ Streaks update on event ingest, not at dashboard read time.
 
 ## Non-goals for v1
 
-- No auth UI. Dev-mode header injects a fixed user_id.
-- No payments.
-- No mobile app (folder reserved; not populated).
+- No payments. (Subscriptions are modeled, but no billing integration yet.)
+- No mobile app (`apps/mobile/` reserved; README only).
 - No offline mode. Always-online v1.
 - No background queue. Ingestion jobs run synchronously triggered by API call.
   Add Celery/RQ/Cloud Tasks when volume justifies it.
+
+(No longer a non-goal: auth. First-party cookie-session auth — signup/login,
+sessions, household invites, login lockout, and an admin role — is built. See
+`ARCHITECTURE.md` § core tables and `app/services/auth/`.)

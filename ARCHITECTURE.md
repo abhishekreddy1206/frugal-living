@@ -40,9 +40,12 @@ The architecture has three layers:
 ┌──▼────────┐      ┌─────▼─────┐           ┌────────▼──────┐
 │  food     │      │  bills    │           │  community     │
 │  (Tier A) │      │  (Tier S) │           │  (Tier B)      │
-│  Now      │      │  Future   │           │  Future        │
+│  Live     │      │  Future   │           │  Live          │
 └───────────┘      └───────────┘           └────────────────┘
 ```
+
+(Plus three cross-cutting schemas that serve every tier: `ai`, `content`,
+`tracking`. They FK into `core` like any tier and never reference tier tables.)
 
 Rules that fall out:
 
@@ -65,35 +68,51 @@ Why not one schema with prefixed table names: harder to grant tier-scoped permis
 
 Why not one database per tier: way too much operational complexity for our scale; cross-tier joins (which we'll want for analytics) become painful; backup/restore overhead.
 
-**The schemas:**
+**The schemas (6 live):**
 
 | Schema | Purpose | Status |
 |---|---|---|
-| `core` | Identity, household, billing, events, audit, flags | Live |
+| `core` | Identity, household, billing, sessions, invites, events, audit, flags, settings | Live |
 | `food` | Tier A: pantry, recipes, meals, preservation, shopping | Live |
+| `community` | Tier B: durable-goods inventory, communities, join requests, listings/sharing | Live |
+| `ai` | Cross-cutting: conversations, messages, voice sessions, briefings | Live |
+| `content` | Cross-cutting: ingestion sources, items, jobs, bookmarks | Live |
+| `tracking` | Cross-cutting: budgets, spend, savings, streaks, badges | Live |
 | `bills` | Tier S: subscriptions, bill negotiation, utilities | Future |
 | `health` | Tier S: medical bills, insurance, providers | Future (separated from `bills` for PHI isolation) |
-| `community` | Tier B: sharing, swaps, skill barter | Future |
 
-The schemas are created in migration `0001_init_schemas.py`. Adding a new schema is a one-line migration.
+The base schemas are created in migration `0001_init_schemas.py`; `community`
+was added later (still a one-line `CREATE SCHEMA`). Adding a new schema is a
+one-line migration. Note the encouraging proof point: the inviolable rules held
+as the model grew — `community` got its own schema (rule 1), and everything
+auth/session/settings/flags-related landed in `core` as tier-agnostic tables
+(rule 2), not as columns bolted onto existing core rows.
 
 ---
 
 ## 3. Core tables, in detail
 
-`core.users` — Identity. Email + password hash + display name. `is_active` toggle. JSONB `metadata` for prefs that aren't yet first-class.
+`core.users` — Identity. Email + password hash + display name. `is_active` toggle. A user-level `role` column (`user | moderator | admin`) gates the admin console. `locked_until` backs login lockout (set by the throttle service after too many failed logins). JSONB `metadata` for prefs that aren't yet first-class.
 
 `core.households` — The unit of billing and data ownership. One household has many users (via `household_members`), one currency, one timezone, one locale. Dietary restrictions, equipment lists, household-wide preferences go in `metadata`.
 
-`core.household_members` — Join table between users and households. `role` column: `owner | member`. (Future: `guest`, `child`, `admin`.)
+`core.household_members` — Join table between users and households. `role` column: `owner | member | viewer`. A user can belong to several households and switch the active one (`/api/v1/auth/switch-household`).
 
 `core.subscriptions` — One row per user. Plan + status + three tier-enabled booleans. **Why per-user, not per-household:** simpler billing in the US (Apple/Google IAP, Stripe), and the household concept exists for content sharing not payment sharing. Members of a household see what the *owning user's* subscription allows.
 
-`core.feature_flags` — Server-side feature flags. `key` (string), `enabled_globally` (bool), `rollout_percent` (0..100). Used for dark launches of new tier features. Check a flag with a tiny helper in `app/services/flags.py` (not yet written).
+`core.sessions` — Server-side session store for cookie auth. Holds a `token_hash` (never the raw token), `user_id`, `household_id` (the active household), `expires_at`, and `revoked_at`. The auth layer (`app/services/auth/sessions.py`) issues, validates, and revokes these; the cookie name and TTL come from `config.py`.
+
+`core.household_invites` — Pending invite to join a household. The raw token is shared with the invitee; the table stores only `token_hash`, the granted `role`, and the `expires_at` / `accepted_at` / `revoked_at` lifecycle. Managed by `app/services/auth/invites.py`.
+
+`core.feature_flags` — Server-side feature flags. `key` (string), `enabled_globally` (bool), `rollout_percent` (0..100). Used for dark launches of new tier features. Resolved (with overrides) by `app/services/flags/resolver.py`; managed via the admin console (`/api/v1/admin/flags`).
+
+`core.feature_flag_overrides` — Per-household or per-user override for a flag (XOR on the scope columns). Lets the global→household→user resolver force a flag on/off for a specific scope without changing the global default.
+
+`core.app_settings_kv` / `core.household_settings` / `core.user_settings` — A three-level configuration key/value store (global, per-household, per-user), each row a `key` → JSONB `value`. **Configuration, not domain data.** A registry (`app/services/settings/registry.py`) declares the known keys/types; the resolver (`app/services/settings/resolver.py`) reads them most-specific-first (user → household → global). Self-service edits go through `me_settings.py`; admin edits through `/api/v1/admin/settings`. The public `runtime-config` endpoint surfaces the global subset that the unauthenticated frontend needs (e.g. the maintenance banner).
 
 `core.events` — The polymorphic activity log. See section 5. Likely to become our largest table; designed accordingly.
 
-`core.audit_log` — Who did what. Separate from `events` because it tracks *actors* (including system/admin actions), not just user-facing happenings. Important for trust, debugging, and future GDPR/CCPA requests.
+`core.audit_log` — Who did what. Separate from `events` because it tracks *actors* (including system/admin actions), not just user-facing happenings. The admin console writes here for moderation take-downs/restores and user role/lock changes. Important for trust, debugging, and future GDPR/CCPA requests.
 
 ---
 
@@ -161,7 +180,7 @@ class Event:
 1. **Streaks, badges, gamification.** "You cooked 5 meals this week" reads from events.
 2. **Undo.** Every state change emitted as an event can be reversed by reading and replaying inversely.
 3. **Analytics.** What features matter, where users drop off, all from one stream.
-4. **The future community feed.** When Tier B ships, the household activity feed reads from events.
+4. **A household activity feed (still future).** Tier B shipped a *discovery* feed over `community.listings` (filtered by visibility), which does **not** read from events; a chronological household *activity* feed over `core.events` remains future.
 5. **Cross-tier insight.** "Users who track preservation jobs are 3x more likely to convert on bill negotiation" — only answerable with a unified event stream.
 6. **New tier additions are zero-friction.** Tier S emits `bills.negotiation.completed` — no schema change in core.
 
@@ -213,13 +232,17 @@ When `core.events` exceeds ~100M rows or becomes a write hot spot, partition by 
 
 ### 5.5 Event type catalog
 
-Maintained list of every event type **currently emitted** by the system. Update as you add new ones.
+Maintained list of every event type **currently emitted** to `core.events` by
+the system (verified against `event_type="..."` call sites in code). Update as
+you add new ones.
 
 **Tier A — food**
 - `food.meal.cooked`
 - `food.meal.skipped`
 - `food.meal_plan.created`
 - `food.pantry_item.added`
+- `food.pantry_item.removed` (chat-driven removal)
+- `food.pantry_item.updated` (chat-driven update)
 - `food.pantry_item.wasted`
 - `food.preservation_job.started`
 - `food.preservation_job.completed`
@@ -227,10 +250,38 @@ Maintained list of every event type **currently emitted** by the system. Update 
 - `food.shopping_list.generated`
 - `food.shopping_item.purchased`
 
+**Tier B — community**
+- `community.community.created`
+- `community.community.deleted`
+- `community.member.joined`
+- `community.member.left`
+- `community.join_request.requested`
+- `community.join_request.approved`
+- `community.join_request.declined`
+- `community.item.added`
+- `community.item.removed`
+- `community.item.updated`
+- `community.listing.created`
+- `community.listing.updated`
+- `community.listing.removed`
+
 **Cross-cutting**
 - `ai.briefing.generated`
 - `content.item.captured`
+- `content.item.enriched` (saved video enriched with AI-extracted ingredients)
 - `tracking.badge.awarded`
+
+**Admin (actor actions; written to `core.events` *and* `core.audit_log`)**
+- `admin.user.role_changed`
+- `admin.user.locked`
+- `admin.user.unlocked`
+- `admin.community.taken_down`
+- `admin.community.restored`
+- `admin.listing.taken_down`
+- `admin.listing.restored`
+
+Audit-log-only (not in `core.events`): `community.community.updated` is recorded
+via `audit_log` (the `action=` field), not as an event.
 
 Reserved by name but not yet emitted anywhere: `food.pantry_item.consumed`,
 `food.pantry_item.expired`. (Future tiers' types added here as introduced.)
@@ -481,8 +532,8 @@ These decisions were made deliberately. Document them so future-Claude doesn't r
 | Redis caching | No real load yet | When Anthropic costs exceed $500/mo and prompt caching helps |
 | Background job queue (Celery/RQ) | No long-running tasks yet | When pantry photo processing needs to run async |
 | File storage (S3/R2) | Photos pass as base64 for v1 | When we want to keep photos beyond a request |
-| Real auth | Stub user is fine pre-launch | First non-Abhishek user |
-| Mobile app | Web first; Expo wraps later | When mobile conversion data justifies it |
+| ~~Real auth~~ **Shipped** | First-party cookie-session auth is now live (sessions, invites, lockout, admin role) | — (third-party IdP only if SSO demand appears) |
+| Mobile app | Web first; `apps/mobile/` is a placeholder (README only) | When mobile conversion data justifies it |
 | GraphQL | REST is fine for our shape | Never, probably |
 | Microservices | Monolith is fine forever at our scale | Never, probably |
 | Event sourcing (vs current event log) | Current pattern serves the need without full ES overhead | If we need point-in-time reconstruction of arbitrary state |
